@@ -35,6 +35,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## Unreleased
+
+### Security
+
+* (codec) [#GHSA-8wcc-m6j2-qxvm](https://github.com/advisories/GHSA-8wcc-m6j2-qxvm) Limit recursion depth for unknown field detection and unpack any to prevent potential DoS attacks.
+
 ## [v0.47.13-evmos](https://github.com/cosmos/evmos/releases/tag/v0.47.13-evmos) - 2024-07-30
 
 ## [v0.47.13](https://github.com/cosmos/cosmos-sdk/releases/tag/v0.47.13) - 2024-07-15

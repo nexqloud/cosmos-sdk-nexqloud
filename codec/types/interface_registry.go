@@ -8,6 +8,16 @@ import (
 	"github.com/cosmos/gogoproto/proto"
 )
 
+var (
+	// MaxUnpackAnySubCalls extension point that defines the maximum number of sub-calls allowed during the unpacking
+	// process of protobuf Any messages.
+	MaxUnpackAnySubCalls = 100
+
+	// MaxUnpackAnyRecursionDepth extension point that defines the maximum allowed recursion depth during protobuf Any
+	// message unpacking.
+	MaxUnpackAnyRecursionDepth = 10
+)
+
 // AnyUnpacker is an interface which allows safely unpacking types packed
 // in Any's against a whitelist of registered types
 type AnyUnpacker interface {
@@ -214,6 +224,36 @@ func (registry *interfaceRegistry) ListImplementations(ifaceName string) []strin
 }
 
 func (registry *interfaceRegistry) UnpackAny(any *Any, iface interface{}) error {
+	unpacker := &statefulUnpacker{
+		registry: registry,
+		maxDepth: MaxUnpackAnyRecursionDepth,
+		maxCalls: &sharedCounter{count: MaxUnpackAnySubCalls},
+	}
+	return unpacker.UnpackAny(any, iface)
+}
+
+// sharedCounter is a type that encapsulates a counter value
+type sharedCounter struct {
+	count int
+}
+
+// statefulUnpacker is a wrapper around interfaceRegistry that adds recursion depth tracking
+type statefulUnpacker struct {
+	registry *interfaceRegistry
+	maxDepth int
+	maxCalls *sharedCounter
+}
+
+// UnpackAny implements AnyUnpacker interface with recursion depth tracking
+func (s *statefulUnpacker) UnpackAny(any *Any, iface interface{}) error {
+	if s.maxDepth == 0 {
+		return fmt.Errorf("maximum recursion depth exceeded")
+	}
+	if s.maxCalls.count == 0 {
+		return fmt.Errorf("maximum unpack any calls exceeded")
+	}
+	s.maxCalls.count--
+
 	// here we gracefully handle the case in which `any` itself is `nil`, which may occur in message decoding
 	if any == nil {
 		return nil
@@ -239,7 +279,7 @@ func (registry *interfaceRegistry) UnpackAny(any *Any, iface interface{}) error 
 		}
 	}
 
-	imap, found := registry.interfaceImpls[rt]
+	imap, found := s.registry.interfaceImpls[rt]
 	if !found {
 		return fmt.Errorf("no registered implementations of type %+v", rt)
 	}
@@ -259,7 +299,13 @@ func (registry *interfaceRegistry) UnpackAny(any *Any, iface interface{}) error 
 		return err
 	}
 
-	err = UnpackInterfaces(msg, registry)
+	// Create a new unpacker with decreased depth for recursive calls
+	nestedUnpacker := &statefulUnpacker{
+		registry: s.registry,
+		maxDepth: s.maxDepth - 1,
+		maxCalls: s.maxCalls,
+	}
+	err = unpackInterfaces(msg, nestedUnpacker)
 	if err != nil {
 		return err
 	}
@@ -268,6 +314,14 @@ func (registry *interfaceRegistry) UnpackAny(any *Any, iface interface{}) error 
 
 	any.cachedValue = msg
 
+	return nil
+}
+
+// unpackInterfaces is a helper function that calls UnpackInterfaces on x if x implements UnpackInterfacesMessage
+func unpackInterfaces(x interface{}, unpacker AnyUnpacker) error {
+	if msg, ok := x.(UnpackInterfacesMessage); ok {
+		return msg.UnpackInterfaces(unpacker)
+	}
 	return nil
 }
 
