@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	abci "github.com/cometbft/cometbft/abci/types"
+	rpcclientmock "github.com/cometbft/cometbft/rpc/client/mock"
 	"github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
-	rpcclientmock "github.com/tendermint/tendermint/rpc/client/mock"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -613,9 +613,9 @@ func (s *CLITestSuite) msgSubmitLegacyProposal(clientCtx client.Context, from, t
 	}
 
 	args := append([]string{
-		fmt.Sprintf("--%s=%s", govcli.FlagTitle, title),               //nolint:staticcheck // SA1019: govcli.FlagTitle is deprecated: use FlagTitle instead
-		fmt.Sprintf("--%s=%s", govcli.FlagDescription, description),   //nolint:staticcheck // SA1019: govcli.FlagDescription is deprecated: use FlagDescription instead
-		fmt.Sprintf("--%s=%s", govcli.FlagProposalType, proposalType), //nolint:staticcheck // SA1019: govcli.FlagProposalType is deprecated: use FlagProposalType instead
+		fmt.Sprintf("--%s=%s", govcli.FlagTitle, title),
+		fmt.Sprintf("--%s=%s", govcli.FlagDescription, description),
+		fmt.Sprintf("--%s=%s", govcli.FlagProposalType, proposalType),
 		fmt.Sprintf("--%s=%s", flags.FlagFrom, from),
 	}, commonArgs...)
 

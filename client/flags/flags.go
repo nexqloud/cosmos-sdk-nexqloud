@@ -4,21 +4,21 @@ import (
 	"fmt"
 	"strconv"
 
+	tmcli "github.com/cometbft/cometbft/libs/cli"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	tmcli "github.com/tendermint/tendermint/libs/cli"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 )
 
-const (
-	// DefaultGasAdjustment is applied to gas estimates to avoid tx execution
-	// failures due to state changes that might occur between the tx simulation
-	// and the actual run.
-	DefaultGasAdjustment = 1.3
-	DefaultGasLimit      = 200000
+// DefaultGasAdjustment is applied to gas estimates to avoid tx execution
+// failures due to state changes that might occur between the tx simulation
+// and the actual run.
+var DefaultGasAdjustment = 1.0
 
-	FlagAuto = "auto"
+const (
+	DefaultGasLimit = 200000
+	GasFlagAuto     = "auto"
 
 	// DefaultKeyringBackend
 	DefaultKeyringBackend = keyring.BackendOS
@@ -74,19 +74,21 @@ const (
 	FlagOffset           = "offset"
 	FlagCountTotal       = "count-total"
 	FlagTimeoutHeight    = "timeout-height"
-	FlagKeyAlgorithm     = "algo"
+	FlagKeyType          = "key-type"
 	FlagFeePayer         = "fee-payer"
 	FlagFeeGranter       = "fee-granter"
 	FlagReverse          = "reverse"
 	FlagTip              = "tip"
 	FlagAux              = "aux"
+	FlagInitHeight       = "initial-height"
 	// FlagOutput is the flag to set the output format.
 	// This differs from FlagOutputDocument that is used to set the output file.
 	FlagOutput = tmcli.OutputFlag
 
 	// Tendermint logging flags
-	FlagLogLevel  = "log_level"
-	FlagLogFormat = "log_format"
+	FlagLogLevel   = "log_level"
+	FlagLogFormat  = "log_format"
+	FlagLogNoColor = "log_no_color"
 )
 
 // LineBreak can be included in a command list to provide a blank line
@@ -97,7 +99,7 @@ var LineBreak = &cobra.Command{Run: func(*cobra.Command, []string) {}}
 func AddQueryFlagsToCmd(cmd *cobra.Command) {
 	cmd.Flags().String(FlagNode, "tcp://localhost:26657", "<host>:<port> to Tendermint RPC interface for this chain")
 	cmd.Flags().String(FlagGRPC, "", "the gRPC endpoint to use for this chain")
-	cmd.Flags().Bool(FlagGRPCInsecure, false, "allow gRPC over insecure channels, if not the server must use TLS")
+	cmd.Flags().Bool(FlagGRPCInsecure, false, "allow gRPC over insecure channels, if not TLS the server must use TLS")
 	cmd.Flags().Int64(FlagHeight, 0, "Use a specific height to query state at (this can error if the node is pruning state)")
 	cmd.Flags().StringP(FlagOutput, "o", "text", "Output format (text|json)")
 
@@ -133,7 +135,7 @@ func AddTxFlagsToCmd(cmd *cobra.Command) {
 	f.String(FlagChainID, "", "The network chain ID")
 	// --gas can accept integers and "auto"
 	f.String(FlagGas, "", fmt.Sprintf("gas limit to set per-transaction; set to %q to calculate sufficient gas automatically. Note: %q option doesn't always report accurate results. Set a valid coin value to adjust the result. Can be used instead of %q. (default %d)",
-		FlagAuto, FlagAuto, FlagFees, DefaultGasLimit))
+		GasFlagAuto, GasFlagAuto, FlagFees, DefaultGasLimit))
 
 	AddKeyringFlags(f)
 }
@@ -162,7 +164,7 @@ type GasSetting struct {
 
 func (v *GasSetting) String() string {
 	if v.Simulate {
-		return FlagAuto
+		return GasFlagAuto
 	}
 
 	return strconv.FormatUint(v.Gas, 10)
@@ -177,13 +179,13 @@ func ParseGasSetting(gasStr string) (GasSetting, error) {
 	case "":
 		return GasSetting{false, DefaultGasLimit}, nil
 
-	case FlagAuto:
+	case GasFlagAuto:
 		return GasSetting{true, 0}, nil
 
 	default:
 		gas, err := strconv.ParseUint(gasStr, 10, 64)
 		if err != nil {
-			return GasSetting{}, fmt.Errorf("gas must be either integer or %s", FlagAuto)
+			return GasSetting{}, fmt.Errorf("gas must be either integer or %s", GasFlagAuto)
 		}
 
 		return GasSetting{false, gas}, nil

@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
+	abci "github.com/cometbft/cometbft/abci/types"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -47,7 +47,7 @@ func TestTickExpiredDepositPeriod(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	res, err := govMsgSvr.SubmitProposal(ctx, newProposalMsg)
+	res, err := govMsgSvr.SubmitProposal(sdk.WrapSDKContext(ctx), newProposalMsg)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -103,7 +103,7 @@ func TestTickMultipleExpiredDepositPeriod(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	res, err := govMsgSvr.SubmitProposal(ctx, newProposalMsg)
+	res, err := govMsgSvr.SubmitProposal(sdk.WrapSDKContext(ctx), newProposalMsg)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -129,7 +129,7 @@ func TestTickMultipleExpiredDepositPeriod(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	res, err = govMsgSvr.SubmitProposal(ctx, newProposalMsg2)
+	res, err = govMsgSvr.SubmitProposal(sdk.WrapSDKContext(ctx), newProposalMsg2)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -190,7 +190,7 @@ func TestTickPassedDepositPeriod(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	res, err := govMsgSvr.SubmitProposal(ctx, newProposalMsg)
+	res, err := govMsgSvr.SubmitProposal(sdk.WrapSDKContext(ctx), newProposalMsg)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -210,7 +210,7 @@ func TestTickPassedDepositPeriod(t *testing.T) {
 
 	newDepositMsg := v1.NewMsgDeposit(addrs[1], proposalID, sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 5)})
 
-	res1, err := govMsgSvr.Deposit(ctx, newDepositMsg)
+	res1, err := govMsgSvr.Deposit(sdk.WrapSDKContext(ctx), newDepositMsg)
 	require.NoError(t, err)
 	require.NotNil(t, res1)
 
@@ -243,7 +243,9 @@ func TestTickPassedVotingPeriod(t *testing.T) {
 	newProposalMsg, err := v1.NewMsgSubmitProposal([]sdk.Msg{mkTestLegacyContent(t)}, proposalCoins, addrs[0].String(), "", "Proposal", "description of proposal")
 	require.NoError(t, err)
 
-	res, err := govMsgSvr.SubmitProposal(ctx, newProposalMsg)
+	wrapCtx := sdk.WrapSDKContext(ctx)
+
+	res, err := govMsgSvr.SubmitProposal(wrapCtx, newProposalMsg)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -255,7 +257,7 @@ func TestTickPassedVotingPeriod(t *testing.T) {
 
 	newDepositMsg := v1.NewMsgDeposit(addrs[1], proposalID, proposalCoins)
 
-	res1, err := govMsgSvr.Deposit(ctx, newDepositMsg)
+	res1, err := govMsgSvr.Deposit(wrapCtx, newDepositMsg)
 	require.NoError(t, err)
 	require.NotNil(t, res1)
 
@@ -313,7 +315,7 @@ func TestProposalPassedEndblocker(t *testing.T) {
 	proposalCoins := sdk.Coins{sdk.NewCoin(sdk.DefaultBondDenom, suite.StakingKeeper.TokensFromConsensusPower(ctx, 10))}
 	newDepositMsg := v1.NewMsgDeposit(addrs[0], proposal.Id, proposalCoins)
 
-	res, err := govMsgSvr.Deposit(ctx, newDepositMsg)
+	res, err := govMsgSvr.Deposit(sdk.WrapSDKContext(ctx), newDepositMsg)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -363,7 +365,7 @@ func TestEndBlockerProposalHandlerFailed(t *testing.T) {
 	newDepositMsg := v1.NewMsgDeposit(addrs[0], proposal.Id, proposalCoins)
 
 	govMsgSvr := keeper.NewMsgServerImpl(suite.GovKeeper)
-	res, err := govMsgSvr.Deposit(ctx, newDepositMsg)
+	res, err := govMsgSvr.Deposit(sdk.WrapSDKContext(ctx), newDepositMsg)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -392,7 +394,7 @@ func createValidators(t *testing.T, stakingMsgSvr stakingtypes.MsgServer, ctx sd
 			TestDescription, TestCommissionRates, math.OneInt(),
 		)
 		require.NoError(t, err)
-		res, err := stakingMsgSvr.CreateValidator(ctx, valCreateMsg)
+		res, err := stakingMsgSvr.CreateValidator(sdk.WrapSDKContext(ctx), valCreateMsg)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 	}

@@ -343,6 +343,9 @@ func (coins Coins) safeAdd(coinsB Coins) (coalesced Coins) {
 			coalesced = append(coalesced, comboCoin)
 		}
 	}
+	if coalesced == nil {
+		return Coins{}
+	}
 	return coalesced.Sort()
 }
 
@@ -421,7 +424,7 @@ func (coins Coins) SafeMulInt(x Int) (Coins, bool) {
 }
 
 // QuoInt performs the scalar division of coins with a `divisor`
-// All coins are divided by x and trucated.
+// All coins are divided by x and truncated.
 // e.g.
 // {2A, 30B} / 2 = {1A, 15B}
 // {2A} / 2 = {1A}
@@ -786,15 +789,26 @@ func (coins Coins) negative() Coins {
 
 // removeZeroCoins removes all zero coins from the given coin set in-place.
 func removeZeroCoins(coins Coins) Coins {
-	nonZeros := make([]Coin, 0, len(coins))
-
-	for _, coin := range coins {
-		if !coin.IsZero() {
-			nonZeros = append(nonZeros, coin)
+	for i := 0; i < len(coins); i++ {
+		if coins[i].IsZero() {
+			break
+		} else if i == len(coins)-1 {
+			return coins
 		}
 	}
 
-	return nonZeros
+	var result []Coin
+	if len(coins) > 0 {
+		result = make([]Coin, 0, len(coins)-1)
+	}
+
+	for _, coin := range coins {
+		if !coin.IsZero() {
+			result = append(result, coin)
+		}
+	}
+
+	return result
 }
 
 //-----------------------------------------------------------------------------
@@ -813,7 +827,12 @@ var _ sort.Interface = Coins{}
 
 // Sort is a helper function to sort the set of coins in-place
 func (coins Coins) Sort() Coins {
-	sort.Sort(coins)
+	// sort.Sort(coins) does a costly runtime copy as part of `runtime.convTSlice`
+	// So we avoid this heap allocation if len(coins) <= 1. In the future, we should hopefully find
+	// a strategy to always avoid this.
+	if len(coins) > 1 {
+		sort.Sort(coins)
+	}
 	return coins
 }
 

@@ -2,36 +2,49 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/coinbase/rosetta-sdk-go/types"
-	"github.com/rs/zerolog"
 
 	crgerrs "cosmossdk.io/tools/rosetta/lib/errors"
 	crgtypes "cosmossdk.io/tools/rosetta/lib/types"
+	"github.com/cometbft/cometbft/libs/log"
 )
 
 // genesisBlockFetchTimeout defines a timeout to fetch the genesis block
 const (
 	genesisBlockFetchTimeout = 15 * time.Second
+	genesisHashEnv           = "GENESIS_HASH"
 )
 
 // NewOnlineNetwork builds a single network adapter.
 // It will get the Genesis block on the beginning to avoid calling it everytime.
-func NewOnlineNetwork(network *types.NetworkIdentifier, client crgtypes.Client, logger *zerolog.Logger) (crgtypes.API, error) {
+func NewOnlineNetwork(network *types.NetworkIdentifier, client crgtypes.Client, logger log.Logger) (crgtypes.API, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), genesisBlockFetchTimeout)
 	defer cancel()
 
-	var genesisHeight int64 = 1 // to get genesis block height
-	genesisBlock, err := client.BlockByHeight(ctx, &genesisHeight)
+	var genesisHeight int64 = -1 // to use initial_height in genesis.json
+	block, err := client.BlockByHeight(ctx, &genesisHeight)
 	if err != nil {
-		logger.Err(err).Msg("failed to get genesis block height")
+		return OnlineNetwork{}, err
 	}
 
+	// Get genesis hash from ENV. It should be set by an external script since is not possible to get
+	// using tendermint API
+	genesisHash := os.Getenv(genesisHashEnv)
+	if genesisHash == "" {
+		logger.Error(fmt.Sprintf("Genesis hash env '%s' is not properly set!", genesisHashEnv))
+	}
+
+	block.Block.Hash = genesisHash
+
 	return OnlineNetwork{
-		client:         client,
-		network:        network,
-		networkOptions: networkOptionsFromClient(client, genesisBlock.Block),
+		client:                 client,
+		network:                network,
+		networkOptions:         networkOptionsFromClient(client, block.Block),
+		genesisBlockIdentifier: block.Block,
 	}, nil
 }
 
@@ -41,6 +54,14 @@ type OnlineNetwork struct {
 
 	network        *types.NetworkIdentifier      // identifies the network, it's static
 	networkOptions *types.NetworkOptionsResponse // identifies the network options, it's static
+
+	genesisBlockIdentifier *types.BlockIdentifier // identifies genesis block, it's static
+}
+
+// AccountsCoins - relevant only for UTXO based chain
+// see https://www.rosetta-api.org/docs/AccountApi.html#accountcoins
+func (o OnlineNetwork) AccountCoins(_ context.Context, _ *types.AccountCoinsRequest) (*types.AccountCoinsResponse, *types.Error) {
+	return nil, crgerrs.ToRosetta(crgerrs.ErrOffline)
 }
 
 // networkOptionsFromClient builds network options given the client

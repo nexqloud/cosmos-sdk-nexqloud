@@ -52,7 +52,7 @@ To install the latest version of `cosmovisor`, run the following command:
 go install cosmossdk.io/tools/cosmovisor/cmd/cosmovisor@latest
 ```
 
-To install a previous version, you can specify the version. IMPORTANT: Chains that use Cosmos-SDK v0.44.3 or earlier (eg v0.44.2) and want to use auto-download feature MUST use `cosmovisor v0.1.0`
+To install a previous version, you can specify the version. IMPORTANT: Chains that use Cosmos SDK v0.44.3 or earlier (eg v0.44.2) and want to use auto-download feature MUST use `cosmovisor v0.1.0`
 
 ```shell
 go install github.com/cosmos/cosmos-sdk/cosmovisor/cmd/cosmovisor@v0.1.0
@@ -145,7 +145,7 @@ The system administrator is responsible for:
 
 In order to support downloadable binaries, a tarball for each upgrade binary will need to be packaged up and made available through a canonical URL. Additionally, a tarball that includes the genesis binary and all available upgrade binaries can be packaged up and made available so that all the necessary binaries required to sync a fullnode from start can be easily downloaded.
 
-The `DAEMON` specific code and operations (e.g. tendermint config, the application db, syncing blocks, etc.) all work as expected. The application binaries' directives such as command-line flags and environment variables also work as expected.
+The `DAEMON` specific code and operations (e.g. cometBFT config, the application db, syncing blocks, etc.) all work as expected. The application binaries' directives such as command-line flags and environment variables also work as expected.
 
 ### Initialization
 

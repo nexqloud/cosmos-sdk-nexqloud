@@ -1,6 +1,9 @@
 package server
 
+// DONTCOVER
+
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -8,17 +11,19 @@ import (
 	"runtime/pprof"
 	"time"
 
+	"github.com/cometbft/cometbft/abci/server"
+	tcmd "github.com/cometbft/cometbft/cmd/cometbft/commands"
+	"github.com/cometbft/cometbft/node"
+	"github.com/cometbft/cometbft/p2p"
+	pvm "github.com/cometbft/cometbft/privval"
+	"github.com/cometbft/cometbft/proxy"
+	"github.com/cometbft/cometbft/rpc/client/local"
 	"github.com/spf13/cobra"
-	"github.com/tendermint/tendermint/abci/server"
-	tcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
-	"github.com/tendermint/tendermint/node"
-	"github.com/tendermint/tendermint/p2p"
-	pvm "github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/proxy"
-	"github.com/tendermint/tendermint/rpc/client/local"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"cosmossdk.io/tools/rosetta"
+	crgserver "cosmossdk.io/tools/rosetta/lib/server"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -28,7 +33,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/types"
 	pruningtypes "github.com/cosmos/cosmos-sdk/store/pruning/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/mempool"
+
+	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 )
 
 const (
@@ -53,6 +61,7 @@ const (
 	FlagMinRetainBlocks     = "min-retain-blocks"
 	FlagIAVLCacheSize       = "iavl-cache-size"
 	FlagDisableIAVLFastNode = "iavl-disable-fastnode"
+	FlagIAVLLazyLoading     = "iavl-lazy-loading"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
@@ -134,11 +143,15 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			withTM, _ := cmd.Flags().GetBool(flagWithTendermint)
 			if !withTM {
 				serverCtx.Logger.Info("starting ABCI without Tendermint")
-				return startStandAlone(serverCtx, appCreator)
+				return wrapCPUProfile(serverCtx, func() error {
+					return startStandAlone(serverCtx, clientCtx, appCreator)
+				})
 			}
 
 			// amino is needed here for backwards compatibility of REST routes
-			err = startInProcess(serverCtx, clientCtx, appCreator)
+			err = wrapCPUProfile(serverCtx, func() error {
+				return startInProcess(serverCtx, clientCtx, appCreator)
+			})
 			errCode, ok := err.(ErrorCode)
 			if !ok {
 				return err
@@ -173,7 +186,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().Uint(FlagAPIMaxOpenConnections, 1000, "Define the number of maximum open connections")
 	cmd.Flags().Uint(FlagRPCReadTimeout, 10, "Define the Tendermint RPC read timeout (in seconds)")
 	cmd.Flags().Uint(FlagRPCWriteTimeout, 0, "Define the Tendermint RPC write timeout (in seconds)")
-	cmd.Flags().Uint(FlagRPCMaxBodyBytes, 1000000, "Define the Tendermint maximum response body (in bytes)")
+	cmd.Flags().Uint(FlagRPCMaxBodyBytes, 1000000, "Define the Tendermint maximum request body (in bytes)")
 	cmd.Flags().Bool(FlagAPIEnableUnsafeCORS, false, "Define if CORS should be enabled (unsafe - use it at your own risk)")
 
 	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
@@ -195,7 +208,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	return cmd
 }
 
-func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
+func startStandAlone(ctx *Context, clientCtx client.Context, appCreator types.AppCreator) error {
 	addr := ctx.Viper.GetString(flagAddress)
 	transport := ctx.Viper.GetString(flagTransport)
 	home := ctx.Viper.GetString(flags.FlagHome)
@@ -218,9 +231,62 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 		return err
 	}
 
-	_, err = startTelemetry(config)
+	// Add the tx service to the gRPC router. We only need to register this
+	// service if API or gRPC is enabled, and avoid doing so in the general
+	// case, because it spawns a new local CometBFT RPC client.
+	if config.API.Enable || config.GRPC.Enable {
+		// create tendermint client
+		// assumes the rpc listen address is where tendermint has its rpc server
+		rpcclient, err := rpchttp.New(ctx.Config.RPC.ListenAddress, "/websocket")
+		if err != nil {
+			return err
+		}
+		// re-assign for making the client available below
+		// do not use := to avoid shadowing clientCtx
+		clientCtx = clientCtx.WithClient(rpcclient)
+		// use the clientCtx provided to start command
+		app.RegisterTxService(clientCtx)
+		app.RegisterTendermintService(clientCtx)
+		app.RegisterNodeService(clientCtx)
+	}
+
+	metrics, err := startTelemetry(config)
 	if err != nil {
 		return err
+	}
+
+	cfg := ctx.Config
+
+	genDocProvider := node.DefaultGenesisDocProviderFunc(cfg)
+
+	apiSrv, err := startAPIserver(config, genDocProvider, clientCtx, home, ctx, app, metrics)
+	if err != nil {
+		return err
+	}
+
+	var (
+		grpcSrv    *grpc.Server
+		grpcWebSrv *http.Server
+	)
+
+	if config.GRPC.Enable {
+		grpcSrv, err = servergrpc.StartGRPCServer(clientCtx, app, config.GRPC)
+		if err != nil {
+			return err
+		}
+		defer grpcSrv.Stop()
+		if config.GRPCWeb.Enable {
+			grpcWebSrv, err = servergrpc.StartGRPCWeb(grpcSrv, config)
+			if err != nil {
+				ctx.Logger.Error("failed to start grpc-web http server: ", err)
+				return err
+			}
+			defer func() {
+				if err := grpcWebSrv.Close(); err != nil {
+					ctx.Logger.Error("failed to close grpc-web http server: ", err)
+				}
+			}()
+		}
 	}
 
 	svr, err := server.NewServer(addr, transport, app)
@@ -233,13 +299,15 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 	err = svr.Start()
 	if err != nil {
 		fmt.Println(err.Error())
-		os.Exit(1)
+		return err
 	}
 
 	defer func() {
-		if err = svr.Stop(); err != nil {
-			fmt.Println(err.Error())
-			os.Exit(1)
+		_ = svr.Stop()
+		_ = app.Close()
+
+		if apiSrv != nil {
+			_ = apiSrv.Close()
 		}
 	}()
 
@@ -250,27 +318,6 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.AppCreator) error {
 	cfg := ctx.Config
 	home := cfg.RootDir
-	var cpuProfileCleanup func()
-
-	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
-		f, err := os.Create(cpuProfile)
-		if err != nil {
-			return err
-		}
-
-		ctx.Logger.Info("starting CPU profiler", "profile", cpuProfile)
-		if err := pprof.StartCPUProfile(f); err != nil {
-			return err
-		}
-
-		cpuProfileCleanup = func() {
-			ctx.Logger.Info("stopping CPU profiler", "profile", cpuProfile)
-			pprof.StopCPUProfile()
-			if err := f.Close(); err != nil {
-				ctx.Logger.Info("failed to close cpu-profile file", "profile", cpuProfile, "err", err.Error())
-			}
-		}
-	}
 
 	db, err := openDB(home, GetAppDBBackend(ctx.Viper))
 	if err != nil {
@@ -283,16 +330,11 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 		return err
 	}
 
-	// Clean up the traceWriter in the cpuProfileCleanup routine that is invoked
-	// when the server is shutting down.
-	fn := cpuProfileCleanup
-	cpuProfileCleanup = func() {
-		if fn != nil {
-			fn()
-		}
-
-		// if flagTraceStore is not used then traceWriter is nil
-		if traceWriter != nil {
+	// Clean up the traceWriter when the server is shutting down.
+	var traceWriterCleanup func()
+	// if flagTraceStore is not used then traceWriter is nil
+	if traceWriter != nil {
+		traceWriterCleanup = func() {
 			if err = traceWriter.Close(); err != nil {
 				ctx.Logger.Error("failed to close trace writer", "err", err)
 			}
@@ -364,70 +406,9 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 		return err
 	}
 
-	var apiSrv *api.Server
-	if config.API.Enable {
-		genDoc, err := genDocProvider()
-		if err != nil {
-			return err
-		}
-
-		clientCtx := clientCtx.WithHomeDir(home).WithChainID(genDoc.ChainID)
-
-		if config.GRPC.Enable {
-			_, port, err := net.SplitHostPort(config.GRPC.Address)
-			if err != nil {
-				return err
-			}
-
-			maxSendMsgSize := config.GRPC.MaxSendMsgSize
-			if maxSendMsgSize == 0 {
-				maxSendMsgSize = serverconfig.DefaultGRPCMaxSendMsgSize
-			}
-
-			maxRecvMsgSize := config.GRPC.MaxRecvMsgSize
-			if maxRecvMsgSize == 0 {
-				maxRecvMsgSize = serverconfig.DefaultGRPCMaxRecvMsgSize
-			}
-
-			grpcAddress := fmt.Sprintf("127.0.0.1:%s", port)
-
-			// If grpc is enabled, configure grpc client for grpc gateway.
-			grpcClient, err := grpc.Dial(
-				grpcAddress,
-				grpc.WithTransportCredentials(insecure.NewCredentials()),
-				grpc.WithDefaultCallOptions(
-					grpc.ForceCodec(codec.NewProtoCodec(clientCtx.InterfaceRegistry).GRPCCodec()),
-					grpc.MaxCallRecvMsgSize(maxRecvMsgSize),
-					grpc.MaxCallSendMsgSize(maxSendMsgSize),
-				),
-			)
-			if err != nil {
-				return err
-			}
-
-			clientCtx = clientCtx.WithGRPCClient(grpcClient)
-			ctx.Logger.Debug("grpc client assigned to client context", "target", grpcAddress)
-		}
-
-		apiSrv = api.New(clientCtx, ctx.Logger.With("module", "api-server"))
-		app.RegisterAPIRoutes(apiSrv, config.API)
-		if config.Telemetry.Enabled {
-			apiSrv.SetTelemetry(metrics)
-		}
-		errCh := make(chan error)
-
-		go func() {
-			if err := apiSrv.Start(config); err != nil {
-				errCh <- err
-			}
-		}()
-
-		select {
-		case err := <-errCh:
-			return err
-
-		case <-time.After(types.ServerStartTime): // assume server started successfully
-		}
+	apiSrv, err := startAPIserver(config, genDocProvider, clientCtx, home, ctx, app, metrics)
+	if err != nil {
+		return err
 	}
 
 	var (
@@ -455,21 +436,16 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 		}
 	}
 
-	// At this point it is safe to block the process if we're in gRPC only mode as
-	// we do not need to handle any Tendermint related processes.
-	if gRPCOnly {
-		// wait for signal capture and gracefully return
-		return WaitForQuitSignals()
-	}
-
 	defer func() {
 		if tmNode != nil && tmNode.IsRunning() {
 			_ = tmNode.Stop()
 		}
 
-		if cpuProfileCleanup != nil {
-			cpuProfileCleanup()
+		if traceWriterCleanup != nil {
+			traceWriterCleanup()
 		}
+
+		_ = app.Close()
 
 		if apiSrv != nil {
 			_ = apiSrv.Close()
@@ -478,8 +454,133 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 		ctx.Logger.Info("exiting...")
 	}()
 
+	// At this point it is safe to block the process if we're in gRPC only mode as
+	// we do not need to start Rosetta or handle any Tendermint related processes.
+	if gRPCOnly {
+		// wait for signal capture and gracefully return
+		return WaitForQuitSignals()
+	}
+
+	var rosettaSrv crgserver.Server
+	if config.Rosetta.Enable {
+		offlineMode := config.Rosetta.Offline
+
+		// If GRPC is not enabled rosetta cannot work in online mode, so we throw an error.
+		if !config.GRPC.Enable && !offlineMode {
+			return errors.New("'grpc' must be enable in online mode for Rosetta to work")
+		}
+
+		minGasPrices, err := sdk.ParseDecCoins(config.MinGasPrices)
+		if err != nil {
+			ctx.Logger.Error("failed to parse minimum-gas-prices: ", err)
+			return err
+		}
+
+		conf := &rosetta.Config{
+			Blockchain:          config.Rosetta.Blockchain,
+			Network:             config.Rosetta.Network,
+			TendermintRPC:       ctx.Config.RPC.ListenAddress,
+			GRPCEndpoint:        config.GRPC.Address,
+			Addr:                config.Rosetta.Address,
+			Retries:             config.Rosetta.Retries,
+			Offline:             offlineMode,
+			GasToSuggest:        config.Rosetta.GasToSuggest,
+			EnableFeeSuggestion: config.Rosetta.EnableFeeSuggestion,
+			GasPrices:           minGasPrices.Sort(),
+			Codec:               clientCtx.Codec.(*codec.ProtoCodec),
+			InterfaceRegistry:   clientCtx.InterfaceRegistry,
+		}
+
+		rosettaSrv, err = rosetta.ServerFromConfig(conf)
+		if err != nil {
+			return err
+		}
+
+		errCh := make(chan error)
+		go func() {
+			if err := rosettaSrv.Start(); err != nil {
+				errCh <- err
+			}
+		}()
+
+		select {
+		case err := <-errCh:
+			return err
+
+		case <-time.After(types.ServerStartTime): // assume server started successfully
+		}
+	}
+
 	// wait for signal capture and gracefully return
 	return WaitForQuitSignals()
+}
+
+func startAPIserver(config serverconfig.Config, genDocProvider node.GenesisDocProvider, clientCtx client.Context, home string, ctx *Context, app types.Application, metrics *telemetry.Metrics) (*api.Server, error) {
+	// If grpc is enabled, configure grpc client for grpc gateway.
+	// assume server started successfully
+	var apiSrv *api.Server
+	if config.API.Enable {
+		genDoc, err := genDocProvider()
+		if err != nil {
+			return nil, err
+		}
+
+		clientCtx := clientCtx.WithHomeDir(home).WithChainID(genDoc.ChainID)
+
+		if config.GRPC.Enable {
+			_, _, err := net.SplitHostPort(config.GRPC.Address)
+			if err != nil {
+				return nil, err
+			}
+
+			maxSendMsgSize := config.GRPC.MaxSendMsgSize
+			if maxSendMsgSize == 0 {
+				maxSendMsgSize = serverconfig.DefaultGRPCMaxSendMsgSize
+			}
+
+			maxRecvMsgSize := config.GRPC.MaxRecvMsgSize
+			if maxRecvMsgSize == 0 {
+				maxRecvMsgSize = serverconfig.DefaultGRPCMaxRecvMsgSize
+			}
+
+			grpcClient, err := grpc.Dial(
+				config.GRPC.Address,
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				grpc.WithDefaultCallOptions(
+					grpc.ForceCodec(codec.NewProtoCodec(clientCtx.InterfaceRegistry).GRPCCodec()),
+					grpc.MaxCallRecvMsgSize(maxRecvMsgSize),
+					grpc.MaxCallSendMsgSize(maxSendMsgSize),
+				),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			clientCtx = clientCtx.WithGRPCClient(grpcClient)
+			ctx.Logger.Debug("grpc client assigned to client context", "target", config.GRPC.Address)
+		}
+
+		apiSrv = api.New(clientCtx, ctx.Logger.With("module", "api-server"))
+		app.RegisterAPIRoutes(apiSrv, config.API)
+		if config.Telemetry.Enabled {
+			apiSrv.SetTelemetry(metrics)
+		}
+		errCh := make(chan error)
+
+		go func() {
+			if err := apiSrv.Start(config); err != nil {
+				errCh <- err
+			}
+		}()
+
+		select {
+		case err := <-errCh:
+			return nil, err
+
+		case <-time.After(types.ServerStartTime):
+		}
+	}
+	return apiSrv, nil
 }
 
 func startTelemetry(cfg serverconfig.Config) (*telemetry.Metrics, error) {
@@ -487,4 +588,41 @@ func startTelemetry(cfg serverconfig.Config) (*telemetry.Metrics, error) {
 		return nil, nil
 	}
 	return telemetry.New(cfg.Telemetry)
+}
+
+// wrapCPUProfile runs callback in a goroutine, then wait for quit signals.
+func wrapCPUProfile(ctx *Context, callback func() error) error {
+	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
+		f, err := os.Create(cpuProfile)
+		if err != nil {
+			return err
+		}
+
+		ctx.Logger.Info("starting CPU profiler", "profile", cpuProfile)
+		if err := pprof.StartCPUProfile(f); err != nil {
+			return err
+		}
+
+		defer func() {
+			ctx.Logger.Info("stopping CPU profiler", "profile", cpuProfile)
+			pprof.StopCPUProfile()
+			if err := f.Close(); err != nil {
+				ctx.Logger.Info("failed to close cpu-profile file", "profile", cpuProfile, "err", err.Error())
+			}
+		}()
+	}
+
+	errCh := make(chan error)
+	go func() {
+		errCh <- callback()
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+
+	case <-time.After(types.ServerStartTime):
+	}
+
+	return WaitForQuitSignals()
 }

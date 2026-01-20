@@ -1,14 +1,16 @@
 package gov
 
+// DONTCOVER
+
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 
@@ -160,7 +162,6 @@ func init() {
 		appmodule.Invoke(InvokeAddRoutes, InvokeSetHooks))
 }
 
-//nolint:revive
 type GovInputs struct {
 	depinject.In
 
@@ -175,10 +176,9 @@ type GovInputs struct {
 	StakingKeeper govtypes.StakingKeeper
 
 	// LegacySubspace is used solely for migration of x/params managed parameters
-	LegacySubspace govtypes.ParamSubspace
+	LegacySubspace govtypes.ParamSubspace `optional:"true"`
 }
 
-//nolint:revive
 type GovOutputs struct {
 	depinject.Out
 
@@ -188,9 +188,9 @@ type GovOutputs struct {
 }
 
 func ProvideModule(in GovInputs) GovOutputs {
-	defaultConfig := govtypes.DefaultConfig()
+	kConfig := govtypes.DefaultConfig()
 	if in.Config.MaxMetadataLen != 0 {
-		defaultConfig.MaxMetadataLen = in.Config.MaxMetadataLen
+		kConfig.MaxMetadataLen = in.Config.MaxMetadataLen
 	}
 
 	// default to governance authority if not provided
@@ -206,7 +206,7 @@ func ProvideModule(in GovInputs) GovOutputs {
 		in.BankKeeper,
 		in.StakingKeeper,
 		in.MsgServiceRouter,
-		defaultConfig,
+		kConfig,
 		authority.String(),
 	)
 	m := NewAppModule(in.Cdc, k, in.AccountKeeper, in.BankKeeper, in.LegacySubspace)
@@ -216,7 +216,7 @@ func ProvideModule(in GovInputs) GovOutputs {
 }
 
 func ProvideKeyTable() paramtypes.KeyTable {
-	return v1.ParamKeyTable()
+	return v1.ParamKeyTable() //nolint:staticcheck
 }
 
 func InvokeAddRoutes(keeper *keeper.Keeper, routes []v1beta1.HandlerRoute) {
@@ -331,8 +331,13 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 
 // ProposalContents returns all the gov content functions used to
 // simulate governance proposals.
-func (AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
+func (AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent { //nolint:staticcheck
 	return simulation.ProposalContents()
+}
+
+// ProposalMsgs returns all the gov msgs used to simulate governance proposals.
+func (AppModule) ProposalMsgs(simState module.SimulationState) []simtypes.WeightedProposalMsg {
+	return simulation.ProposalMsgs()
 }
 
 // RegisterStoreDecoder registers a decoder for gov module's types
@@ -344,6 +349,7 @@ func (am AppModule) RegisterStoreDecoder(sdr sdk.StoreDecoderRegistry) {
 func (am AppModule) WeightedOperations(simState module.SimulationState) []simtypes.WeightedOperation {
 	return simulation.WeightedOperations(
 		simState.AppParams, simState.Cdc,
-		am.accountKeeper, am.bankKeeper, am.keeper, simState.Contents,
+		am.accountKeeper, am.bankKeeper, am.keeper,
+		simState.ProposalMsgs, simState.LegacyProposalContents,
 	)
 }

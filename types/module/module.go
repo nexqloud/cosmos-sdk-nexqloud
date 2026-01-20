@@ -34,9 +34,9 @@ import (
 	"sort"
 
 	"cosmossdk.io/core/appmodule"
+	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 	"golang.org/x/exp/maps"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -293,50 +293,32 @@ func NewManagerFromMap(moduleMap map[string]appmodule.AppModule) *Manager {
 
 // SetOrderInitGenesis sets the order of init genesis calls
 func (m *Manager) SetOrderInitGenesis(moduleNames ...string) {
-	m.assertNoForgottenModules("SetOrderInitGenesis", moduleNames, func(moduleName string) bool {
-		module := m.Modules[moduleName]
-		_, hasGenesis := module.(HasGenesis)
-		return !hasGenesis
-	})
+	m.assertNoForgottenModules("SetOrderInitGenesis", moduleNames)
 	m.OrderInitGenesis = moduleNames
 }
 
 // SetOrderExportGenesis sets the order of export genesis calls
 func (m *Manager) SetOrderExportGenesis(moduleNames ...string) {
-	m.assertNoForgottenModules("SetOrderExportGenesis", moduleNames, func(moduleName string) bool {
-		module := m.Modules[moduleName]
-		_, hasGenesis := module.(HasGenesis)
-		return !hasGenesis
-	})
+	m.assertNoForgottenModules("SetOrderExportGenesis", moduleNames)
 	m.OrderExportGenesis = moduleNames
 }
 
 // SetOrderBeginBlockers sets the order of set begin-blocker calls
 func (m *Manager) SetOrderBeginBlockers(moduleNames ...string) {
-	m.assertNoForgottenModules("SetOrderBeginBlockers", moduleNames,
-		func(moduleName string) bool {
-			module := m.Modules[moduleName]
-			_, hasBeginBlock := module.(BeginBlockAppModule)
-			return !hasBeginBlock
-		})
+	m.assertNoForgottenModules("SetOrderBeginBlockers", moduleNames)
 	m.OrderBeginBlockers = moduleNames
 }
 
 // SetOrderEndBlockers sets the order of set end-blocker calls
 func (m *Manager) SetOrderEndBlockers(moduleNames ...string) {
-	m.assertNoForgottenModules("SetOrderEndBlockers", moduleNames,
-		func(moduleName string) bool {
-			module := m.Modules[moduleName]
-			_, hasEndBlock := module.(EndBlockAppModule)
-			return !hasEndBlock
-		})
+	m.assertNoForgottenModules("SetOrderEndBlockers", moduleNames)
 	m.OrderEndBlockers = moduleNames
 }
 
 // SetOrderMigrations sets the order of migrations to be run. If not set
 // then migrations will be run with an order defined in `DefaultMigrationsOrder`.
 func (m *Manager) SetOrderMigrations(moduleNames ...string) {
-	m.assertNoForgottenModules("SetOrderMigrations", moduleNames, nil)
+	m.assertNoForgottenModules("SetOrderMigrations", moduleNames)
 	m.OrderMigrations = moduleNames
 }
 
@@ -443,19 +425,13 @@ func (m *Manager) checkModulesExists(moduleName []string) error {
 
 // assertNoForgottenModules checks that we didn't forget any modules in the
 // SetOrder* functions.
-// `pass` is a closure which allows one to omit modules from `moduleNames`. If you provide non-nil `pass` and it returns true, the module would not be subject of the assertion.
-func (m *Manager) assertNoForgottenModules(setOrderFnName string, moduleNames []string, pass func(moduleName string) bool) {
+func (m *Manager) assertNoForgottenModules(setOrderFnName string, moduleNames []string) {
 	ms := make(map[string]bool)
 	for _, m := range moduleNames {
 		ms[m] = true
 	}
 	var missing []string
 	for m := range m.Modules {
-		m := m
-		if pass != nil && pass(m) {
-			continue
-		}
-
 		if !ms[m] {
 			missing = append(missing, m)
 		}
@@ -463,7 +439,7 @@ func (m *Manager) assertNoForgottenModules(setOrderFnName string, moduleNames []
 	if len(missing) != 0 {
 		sort.Strings(missing)
 		panic(fmt.Sprintf(
-			"all modules must be defined when setting %s, missing: %v", setOrderFnName, missing))
+			"%s: all modules must be defined when setting %s, missing: %v", setOrderFnName, setOrderFnName, missing))
 	}
 }
 

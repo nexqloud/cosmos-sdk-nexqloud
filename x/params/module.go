@@ -6,9 +6,9 @@ import (
 
 	govv1beta1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	modulev1 "cosmossdk.io/api/cosmos/params/module/v1"
 	"cosmossdk.io/core/appmodule"
@@ -113,12 +113,6 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	proposal.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 }
 
-// ProposalContents returns all the params content functions used to
-// simulate governance proposals.
-func (am AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
-	return nil
-}
-
 // RegisterStoreDecoder doesn't register any type.
 func (AppModule) RegisterStoreDecoder(sdr sdk.StoreDecoderRegistry) {}
 
@@ -147,7 +141,6 @@ func init() {
 		))
 }
 
-//nolint:revive
 type ParamsInputs struct {
 	depinject.In
 
@@ -157,7 +150,6 @@ type ParamsInputs struct {
 	LegacyAmino       *codec.LegacyAmino
 }
 
-//nolint:revive
 type ParamsOutputs struct {
 	depinject.Out
 
@@ -188,6 +180,7 @@ func ProvideSubspace(in SubspaceInputs) types.Subspace {
 	kt, exists := in.KeyTables[moduleName]
 	if !exists {
 		return in.Keeper.Subspace(moduleName)
+	} else {
+		return in.Keeper.Subspace(moduleName).WithKeyTable(kt)
 	}
-	return in.Keeper.Subspace(moduleName).WithKeyTable(kt)
 }

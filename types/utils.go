@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/tendermint/tendermint/libs/log"
+	log "github.com/cometbft/cometbft/libs/log"
 
 	"github.com/cosmos/cosmos-sdk/types/kv"
 )
@@ -141,4 +141,16 @@ func LogDeferred(logger log.Logger, f func() error) {
 	if err := f(); err != nil {
 		logger.Error(err.Error())
 	}
+}
+
+// SliceContains implements a generic function for checking if a slice contains
+// a certain value.
+func SliceContains[T comparable](elements []T, v T) bool {
+	for _, s := range elements {
+		if v == s {
+			return true
+		}
+	}
+
+	return false
 }

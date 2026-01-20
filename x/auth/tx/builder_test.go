@@ -21,7 +21,7 @@ func TestTxBuilder(t *testing.T) {
 	marshaler := codec.NewProtoCodec(codectypes.NewInterfaceRegistry())
 	txBuilder := newBuilder(nil)
 
-	memo := "sometestmemo" //nolint:goconst
+	memo := "sometestmemo"
 	msgs := []sdk.Msg{testdata.NewTestMsg(addr)}
 	accSeq := uint64(2) // Arbitrary account sequence
 	any, err := codectypes.NewAnyWithValue(pubkey)
@@ -40,7 +40,7 @@ func TestTxBuilder(t *testing.T) {
 		Sequence: accSeq,
 	})
 
-	sig := signing.SignatureV2{
+	var sig signing.SignatureV2 = signing.SignatureV2{
 		PubKey: pubkey,
 		Data: &signing.SingleSignatureData{
 			SignMode:  signing.SignMode_SIGN_MODE_DIRECT,
@@ -121,6 +121,20 @@ func TestTxBuilder(t *testing.T) {
 	require.NotPanics(t, func() {
 		_ = txBuilder.GetMsgs()
 	})
+}
+
+func TestSetSignaturesNoPublicKey(t *testing.T) {
+	_, pubkey, _ := testdata.KeyTestPubAddr()
+	txBuilder := newBuilder(nil)
+	sig2 := signing.SignatureV2{
+		Data: &signing.SingleSignatureData{
+			SignMode:  signing.SignMode_SIGN_MODE_DIRECT,
+			Signature: legacy.Cdc.MustMarshal(pubkey),
+		},
+		Sequence: 1,
+	}
+	err := txBuilder.SetSignatures(sig2)
+	require.NoError(t, err)
 }
 
 func TestBuilderValidateBasic(t *testing.T) {

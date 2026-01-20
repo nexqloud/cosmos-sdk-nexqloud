@@ -3,7 +3,6 @@ package client
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -61,8 +60,7 @@ func SignTx(txFactory tx.Factory, clientCtx client.Context, name string, txBuild
 		}
 	}
 
-	// When Textual is wired up, the context argument should be retrieved from the client context.
-	return tx.Sign(context.TODO(), txFactory, name, txBuilder, overwriteSig)
+	return tx.Sign(txFactory, name, txBuilder, overwriteSig)
 }
 
 // SignTxWithSignerAddress attaches a signature to a transaction.
@@ -90,8 +88,7 @@ func SignTxWithSignerAddress(txFactory tx.Factory, clientCtx client.Context, add
 		}
 	}
 
-	// When Textual is wired up, the context argument should be retrieved from the client context.
-	return tx.Sign(context.TODO(), txFactory, name, txBuilder, overwrite)
+	return tx.Sign(txFactory, name, txBuilder, overwrite)
 }
 
 // Read and decode a StdTx from the given filename. Can pass "-" to read from stdin.

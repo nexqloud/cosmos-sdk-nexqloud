@@ -17,17 +17,15 @@ func TestDispatcher(t *testing.T) {
 		expErr           bool
 		expValueRenderer valuerenderer.ValueRenderer
 	}{
-		{"UINT32", false, valuerenderer.NewIntValueRenderer(fieldDescriptorFromName("UINT32"))},
-		{"UINT64", false, valuerenderer.NewIntValueRenderer(fieldDescriptorFromName("UINT64"))},
-		{"SDKINT", false, valuerenderer.NewIntValueRenderer(fieldDescriptorFromName("SDKINT"))},
+		{"UINT32", false, valuerenderer.NewIntValueRenderer()},
+		{"UINT64", false, valuerenderer.NewIntValueRenderer()},
+		{"SDKINT", false, valuerenderer.NewIntValueRenderer()},
 		{"SDKDEC", false, valuerenderer.NewDecValueRenderer()},
 		{"BYTES", false, valuerenderer.NewBytesValueRenderer()},
 		{"TIMESTAMP", false, valuerenderer.NewTimestampValueRenderer()},
 		{"DURATION", false, valuerenderer.NewDurationValueRenderer()},
 		{"COIN", false, valuerenderer.NewCoinsValueRenderer(nil)},
 		{"COINS", false, valuerenderer.NewCoinsValueRenderer(nil)},
-		{"ENUM", false, valuerenderer.NewEnumValueRenderer(fieldDescriptorFromName("ENUM"))},
-		{"ANY", false, valuerenderer.NewAnyValueRenderer(nil)},
 		{"FLOAT", true, nil},
 	}
 
@@ -35,7 +33,7 @@ func TestDispatcher(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			textual := valuerenderer.NewTextual(nil)
-			rend, err := textual.GetFieldValueRenderer(fieldDescriptorFromName(tc.name))
+			rend, err := textual.GetValueRenderer(fieldDescriptorFromName(tc.name))
 
 			if tc.expErr {
 				require.Error(t, err)

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang/protobuf/proto" //nolint:staticcheck // grpc-gateway uses deprecated golang/protobuf
+	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc/codes"
@@ -170,7 +170,7 @@ func decodeMultipleBase64Chunks(b []byte) ([]byte, error) {
 		if paddingIndex != -1 {
 			// find the consecutive =
 			for {
-				paddingIndex++
+				paddingIndex += 1
 				if paddingIndex >= len(chunk) || chunk[paddingIndex] != '=' {
 					break
 				}

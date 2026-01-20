@@ -1,8 +1,8 @@
 package tmservice
 
 import (
+	tmprototypes "github.com/cometbft/cometbft/proto/tendermint/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	tmprototypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 // convertHeader converts tendermint header to sdk header
@@ -21,7 +21,7 @@ func convertHeader(h tmprototypes.Header) Header {
 		EvidenceHash:       h.EvidenceHash,
 		LastResultsHash:    h.LastResultsHash,
 		LastCommitHash:     h.LastCommitHash,
-		ProposerAddress:    sdk.ValAddress(h.ProposerAddress).String(),
+		ProposerAddress:    sdk.ConsAddress(h.ProposerAddress).String(),
 	}
 }
 

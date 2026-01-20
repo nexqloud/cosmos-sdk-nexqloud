@@ -252,7 +252,6 @@ when certain events happen.
 
 With the app wiring framework, these hooks interfaces can be defined as a `OnePerModuleType`s and then the module
 which consumes these hooks can collect these hooks as a map of module name to hook type (ex. `map[string]FooHooks`). Ex:
-
 ```go
 func init() {
     appmodule.Register(
@@ -276,7 +275,6 @@ in its config object.
 
 An alternative way for registering hooks via reflection was considered where all keeper types are inspected to see if
 they implement the hook interface by the modules exposing hooks. This has the downsides of:
-
 * needing to expose all the keepers of all modules to the module providing hooks,
 * not allowing for encapsulating hooks on a different type which doesn't expose all keeper methods,
 * harder to know statically which module expose hooks or are checking for them.
@@ -288,7 +286,6 @@ With the approach proposed here, hooks registration will be obviously observable
 
 The `depinject` framework will optionally allow the app configuration and dependency injection wiring to be code
 generated. This will allow:
-
 * dependency injection wiring to be inspected as regular go code just like the existing `app.go`,
 * dependency injection to be opt-in with manual wiring 100% still possible.
 
@@ -308,7 +305,6 @@ registration paradigms. These two methods can live side-by-side for as long as i
 * it may be possible to dynamically load modules and upgrade chains without needing to do a coordinated stop and binary
   upgrade using this mechanism
 * easier plugin integration
-* easier way to manage app construction for tools like Ignite CLI
 * dependency injection framework provides more automated reasoning about dependencies in the project, with a graph visualization.
 
 ### Negative

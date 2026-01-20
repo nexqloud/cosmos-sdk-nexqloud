@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"testing"
 
-	db "github.com/cosmos/cosmos-db"
+	db "github.com/cometbft/cometbft-db"
+	"github.com/cometbft/cometbft/libs/log"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/libs/log"
 
-	"github.com/cosmos/cosmos-sdk/store/mock"
 	"github.com/cosmos/cosmos-sdk/store/pruning"
+	"github.com/cosmos/cosmos-sdk/store/pruning/mock"
 	"github.com/cosmos/cosmos-sdk/store/pruning/types"
 )
 
@@ -153,7 +153,7 @@ func TestStrategies(t *testing.T) {
 }
 
 func TestHandleHeight_Inputs(t *testing.T) {
-	keepRecent := int64(types.NewPruningOptions(types.PruningEverything).KeepRecent)
+	var keepRecent int64 = int64(types.NewPruningOptions(types.PruningEverything).KeepRecent)
 
 	testcases := map[string]struct {
 		height          int64
@@ -284,7 +284,7 @@ func TestHandleHeight_FlushLoadFromDisk(t *testing.T) {
 			require.NotNil(t, manager)
 
 			manager.SetSnapshotInterval(tc.snapshotInterval)
-			manager.SetOptions(types.NewCustomPruningOptions(tc.keepRecent, uint64(10)))
+			manager.SetOptions(types.NewCustomPruningOptions(uint64(tc.keepRecent), uint64(10)))
 
 			for _, snapshotHeight := range tc.movedSnapshotHeights {
 				manager.HandleHeightSnapshot(snapshotHeight)

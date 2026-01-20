@@ -5,10 +5,10 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/cometbft/cometbft/libs/log"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -84,15 +84,15 @@ type sigErrTx struct {
 	getSigs func() ([]txsigning.SignatureV2, error)
 }
 
-func (sigErrTx) Size() int64 { return 0 }
+func (_ sigErrTx) Size() int64 { return 0 }
 
-func (sigErrTx) GetMsgs() []sdk.Msg { return nil }
+func (_ sigErrTx) GetMsgs() []sdk.Msg { return nil }
 
-func (sigErrTx) ValidateBasic() error { return nil }
+func (_ sigErrTx) ValidateBasic() error { return nil }
 
-func (sigErrTx) GetSigners() []sdk.AccAddress { return nil }
+func (_ sigErrTx) GetSigners() []sdk.AccAddress { return nil }
 
-func (sigErrTx) GetPubKeys() ([]cryptotypes.PubKey, error) { return nil, nil }
+func (_ sigErrTx) GetPubKeys() ([]cryptotypes.PubKey, error) { return nil, nil }
 
 func (t sigErrTx) GetSignaturesV2() ([]txsigning.SignatureV2, error) { return t.getSigs() }
 

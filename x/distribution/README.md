@@ -100,7 +100,7 @@ In Proof of Stake (PoS) blockchains, rewards gained from transaction fees are pa
 
 Rewards are calculated per period. The period is updated each time a validator's delegation changes, for example, when the validator receives a new delegation.
 The rewards for a single validator can then be calculated by taking the total rewards for the period before the delegation started, minus the current total rewards.
-To learn more, see the [F1 Fee Distribution paper](https://github.com/cosmos/cosmos-sdk/tree/main/docs/spec/fee_distribution/f1_fee_distr.pdf).
+To learn more, see the [F1 Fee Distribution paper](/docs/spec/fee_distribution/f1_fee_distr.pdf).
 
 The commission to the validator is paid when the validator is removed or when the validator requests a withdrawal.
 The commission is calculated and incremented at every `BeginBlock` operation to update accumulated fee amounts.
@@ -151,7 +151,7 @@ type DecCoin struct {
 ```
 
 ```protobuf reference
-https://github.com/cosmos/cosmos-sdk/blob/v0.46.0/proto/cosmos/distribution/v1beta1/distribution.proto#L92-L96
+https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/proto/cosmos/distribution/v1beta1/distribution.proto#L116-L123
 ```
 
 ### Validator Distribution
@@ -196,7 +196,7 @@ it can be updated with governance or the address with authority.
 * Params: `0x09 | ProtocolBuffer(Params)`
 
 ```protobuf reference
-https://github.com/cosmos/cosmos-sdk/blob/v0.46.0/proto/cosmos/distribution/v1beta1/distribution.proto#L11-L30
+https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/proto/cosmos/distribution/v1beta1/distribution.proto#L12-L42
 ```
 
 ## Begin Block
@@ -282,7 +282,7 @@ The withdraw address cannot be any of the module accounts. These accounts are bl
 Response:
 
 ```protobuf reference
-https://github.com/cosmos/cosmos-sdk/blob/v0.46.0/proto/cosmos/distribution/v1beta1/tx.proto#L31-L41
+https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/proto/cosmos/distribution/v1beta1/tx.proto#L49-L60
 ```
 
 ```go
@@ -334,7 +334,7 @@ The final calculated stake is equivalent to the actual staked coins in the deleg
 Response:
 
 ```protobuf reference
-https://github.com/cosmos/cosmos-sdk/blob/v0.46.0/proto/cosmos/distribution/v1beta1/tx.proto#L46-L56
+https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/proto/cosmos/distribution/v1beta1/tx.proto#L66-L77
 ```
 
 ### WithdrawValidatorCommission
@@ -398,7 +398,7 @@ func (k Keeper) initializeDelegation(ctx sdk.Context, val sdk.ValAddress, del sd
 Distribution module params can be updated through `MsgUpdateParams`, which can be done using governance proposal and the signer will always be gov module account address.
 
 ```protobuf reference
-https://github.com/cosmos/cosmos-sdk/blob/8822ef2695a1eb8cb30b7432f58f631c73951f1d/proto/cosmos/distribution/v1beta1/tx.proto#L106-L119
+https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/proto/cosmos/distribution/v1beta1/tx.proto#L133-L147
 ```
 
 The message handling can fail if:

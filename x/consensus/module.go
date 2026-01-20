@@ -7,9 +7,9 @@ import (
 	modulev1 "cosmossdk.io/api/cosmos/consensus/module/v1"
 	"cosmossdk.io/core/appmodule"
 	"cosmossdk.io/depinject"
+	abci "github.com/cometbft/cometbft/abci/types"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -137,7 +137,6 @@ func init() {
 	)
 }
 
-//nolint:revive
 type ConsensusInputs struct {
 	depinject.In
 
@@ -146,7 +145,6 @@ type ConsensusInputs struct {
 	Key    *store.KVStoreKey
 }
 
-//nolint:revive
 type ConsensusOutputs struct {
 	depinject.Out
 

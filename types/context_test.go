@@ -5,10 +5,11 @@ import (
 	"testing"
 	"time"
 
+	abci "github.com/cometbft/cometbft/abci/types"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	tmtime "github.com/cometbft/cometbft/types/time"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -137,7 +138,7 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	s.Require().Equal(cp, ctx.WithConsensusParams(cp).ConsensusParams())
 
 	// test inner context
-	newContext := context.WithValue(ctx.Context(), "key", "value") //nolint:golint,staticcheck,revive
+	newContext := context.WithValue(ctx.Context(), "key", "value") //nolint:golint,staticcheck
 	s.Require().NotEqual(ctx.Context(), ctx.WithContext(newContext).Context())
 }
 
@@ -160,6 +161,14 @@ func (s *contextTestSuite) TestContextHeader() {
 	s.Require().Equal(height, ctx.BlockHeader().Height)
 	s.Require().Equal(time.UTC(), ctx.BlockHeader().Time)
 	s.Require().Equal(proposer.Bytes(), ctx.BlockHeader().ProposerAddress)
+}
+
+func (s *contextTestSuite) TestWithBlockTime() {
+	now := time.Now()
+	ctx := types.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx = ctx.WithBlockTime(now)
+	tmtime2 := tmtime.Canonical(now)
+	s.Require().Equal(ctx.BlockTime(), tmtime2)
 }
 
 func (s *contextTestSuite) TestContextHeaderClone() {
@@ -228,7 +237,7 @@ func (s *contextTestSuite) TestUnwrapSDKContext() {
 	s.Require().Panics(func() { types.UnwrapSDKContext(ctx) })
 
 	// test unwrapping when we've used context.WithValue
-	ctx = context.WithValue(sdkCtx, "foo", "bar") //nolint:golint,staticcheck,revive
+	ctx = context.WithValue(sdkCtx, "foo", "bar")
 	sdkCtx2 = types.UnwrapSDKContext(ctx)
 	s.Require().Equal(sdkCtx, sdkCtx2)
 }

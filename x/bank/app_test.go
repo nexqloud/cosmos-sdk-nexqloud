@@ -3,9 +3,9 @@ package bank_test
 import (
 	"testing"
 
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -356,7 +356,7 @@ func TestMsgSetSendEnabled(t *testing.T) {
 		[]sdk.Msg{
 			types.NewMsgSetSendEnabled(govAddr, nil, nil),
 		},
-		sdk.Coins{{Denom: "foocoin", Amount: sdk.NewInt(5)}},
+		sdk.Coins{{"foocoin", sdk.NewInt(5)}},
 		addr1Str,
 		"set default send enabled to true",
 		"Change send enabled",
@@ -365,9 +365,9 @@ func TestMsgSetSendEnabled(t *testing.T) {
 	require.NoError(t, err, "making goodGovProp")
 	badGovProp, err := govv1.NewMsgSubmitProposal(
 		[]sdk.Msg{
-			types.NewMsgSetSendEnabled(govAddr, []*types.SendEnabled{{Denom: "bad coin name!", Enabled: true}}, nil),
+			types.NewMsgSetSendEnabled(govAddr, []*types.SendEnabled{{"bad coin name!", true}}, nil),
 		},
-		sdk.Coins{{Denom: "foocoin", Amount: sdk.NewInt(5)}},
+		sdk.Coins{{"foocoin", sdk.NewInt(5)}},
 		addr1Str,
 		"set default send enabled to true",
 		"Change send enabled",

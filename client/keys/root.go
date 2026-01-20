@@ -1,8 +1,8 @@
 package keys
 
 import (
+	"github.com/cometbft/cometbft/libs/cli"
 	"github.com/spf13/cobra"
-	"github.com/tendermint/tendermint/libs/cli"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 )
@@ -42,7 +42,9 @@ The pass backend requires GnuPG: https://gnupg.org/
 		AddKeyCommand(),
 		ExportKeyCommand(),
 		ImportKeyCommand(),
+		ImportKeyHexCommand(),
 		ListKeysCmd(),
+		ListKeyTypesCmd(),
 		ShowKeysCmd(),
 		DeleteKeyCommand(),
 		RenameKeyCommand(),

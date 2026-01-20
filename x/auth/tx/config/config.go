@@ -24,7 +24,6 @@ func init() {
 	)
 }
 
-//nolint:revive
 type TxInputs struct {
 	depinject.In
 
@@ -36,7 +35,6 @@ type TxInputs struct {
 	FeeGrantKeeper feegrantkeeper.Keeper `optional:"true"`
 }
 
-//nolint:revive
 type TxOutputs struct {
 	depinject.Out
 

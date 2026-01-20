@@ -1,8 +1,10 @@
 package types
 
 import (
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	"errors"
+
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	tmtypes "github.com/cometbft/cometbft/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/migrations/legacytx"
@@ -42,6 +44,10 @@ func (msg MsgUpdateParams) ValidateBasic() error {
 }
 
 func (msg MsgUpdateParams) ToProtoConsensusParams() tmproto.ConsensusParams {
+	if msg.Evidence == nil || msg.Block == nil || msg.Validator == nil {
+		panic(errors.New("all parameters must be present"))
+	}
+
 	return tmproto.ConsensusParams{
 		Block: &tmproto.BlockParams{
 			MaxBytes: msg.Block.MaxBytes,

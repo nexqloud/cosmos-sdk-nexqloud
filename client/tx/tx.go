@@ -24,7 +24,10 @@ import (
 // GenerateOrBroadcastTxCLI will either generate and print and unsigned transaction
 // or sign it and broadcast it returning an error upon failure.
 func GenerateOrBroadcastTxCLI(clientCtx client.Context, flagSet *pflag.FlagSet, msgs ...sdk.Msg) error {
-	txf := NewFactoryCLI(clientCtx, flagSet)
+	txf, err := NewFactoryCLI(clientCtx, flagSet)
+	if err != nil {
+		return err
+	}
 
 	return GenerateOrBroadcastTxWithFactory(clientCtx, txf, msgs...)
 }
@@ -69,6 +72,10 @@ func BroadcastTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 	}
 
 	if txf.SimulateAndExecute() || clientCtx.Simulate {
+		if clientCtx.Offline {
+			return errors.New("cannot estimate gas in offline mode")
+		}
+
 		_, adjusted, err := CalculateGas(clientCtx, txf, msgs...)
 		if err != nil {
 			return err
@@ -94,23 +101,19 @@ func BroadcastTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 		}
 
 		if err := clientCtx.PrintRaw(json.RawMessage(txBytes)); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n%s\n", err, txBytes)
+			_, _ = fmt.Fprintf(os.Stderr, "%s\n", txBytes)
 		}
 
 		buf := bufio.NewReader(os.Stdin)
 		ok, err := input.GetConfirmation("confirm transaction before signing and broadcasting", buf, os.Stderr)
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "error: %v\ncancelled transaction\n", err)
+
+		if err != nil || !ok {
+			_, _ = fmt.Fprintf(os.Stderr, "%s\n", "cancelled transaction")
 			return err
-		}
-		if !ok {
-			_, _ = fmt.Fprintln(os.Stderr, "cancelled transaction")
-			return nil
 		}
 	}
 
-	// When Textual is wired up, the context argument should be retrieved from the client context.
-	err = Sign(context.TODO(), txf, clientCtx.GetFromName(), tx, true)
+	err = Sign(txf, clientCtx.GetFromName(), tx, true)
 	if err != nil {
 		return err
 	}
@@ -153,7 +156,6 @@ func CalculateGas(
 // SignWithPrivKey signs a given tx with the given private key, and returns the
 // corresponding SignatureV2 if the signing is successful.
 func SignWithPrivKey(
-	ctx context.Context,
 	signMode signing.SignMode, signerData authsigning.SignerData,
 	txBuilder client.TxBuilder, priv cryptotypes.PrivKey, txConfig client.TxConfig,
 	accSeq uint64,
@@ -161,7 +163,7 @@ func SignWithPrivKey(
 	var sigV2 signing.SignatureV2
 
 	// Generate the bytes to be signed.
-	signBytes, err := authsigning.GetSignBytesWithContext(txConfig.SignModeHandler(), ctx, signMode, signerData, txBuilder.GetTx())
+	signBytes, err := txConfig.SignModeHandler().GetSignBytes(signMode, signerData, txBuilder.GetTx())
 	if err != nil {
 		return sigV2, err
 	}
@@ -232,7 +234,7 @@ func checkMultipleSigners(tx authsigning.Tx) error {
 // Signing a transaction with mutltiple signers in the DIRECT mode is not supprted and will
 // return an error.
 // An error is returned upon failure.
-func Sign(ctx context.Context, txf Factory, name string, txBuilder client.TxBuilder, overwriteSig bool) error {
+func Sign(txf Factory, name string, txBuilder client.TxBuilder, overwriteSig bool) error {
 	if txf.keybase == nil {
 		return errors.New("keybase must be set prior to signing a transaction")
 	}
@@ -303,7 +305,7 @@ func Sign(ctx context.Context, txf Factory, name string, txBuilder client.TxBuil
 	}
 
 	// Generate the bytes to be signed.
-	bytesToSign, err := authsigning.GetSignBytesWithContext(txf.txConfig.SignModeHandler(), ctx, signMode, signerData, txBuilder.GetTx())
+	bytesToSign, err := txf.txConfig.SignModeHandler().GetSignBytes(signMode, signerData, txBuilder.GetTx())
 	if err != nil {
 		return err
 	}

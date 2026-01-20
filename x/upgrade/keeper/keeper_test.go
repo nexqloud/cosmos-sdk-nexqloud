@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cometbft/cometbft/libs/log"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -84,6 +84,12 @@ func (s *KeeperTestSuite) TestReadUpgradeInfoFromDisk() {
 	s.Require().NoError(err)
 	expected.Height = 101
 	s.Require().Equal(expected, ui)
+
+	// create invalid upgrade plan (with empty name)
+	expected.Name = ""
+	s.Require().NoError(s.upgradeKeeper.DumpUpgradeInfoToDisk(101, expected))
+	_, err = s.upgradeKeeper.ReadUpgradeInfoFromDisk()
+	s.Require().ErrorContains(err, "name cannot be empty: invalid request")
 }
 
 func (s *KeeperTestSuite) TestScheduleUpgrade() {
@@ -227,7 +233,7 @@ func (s *KeeperTestSuite) TestIsSkipHeight() {
 	ok := s.upgradeKeeper.IsSkipHeight(11)
 	s.Require().False(ok)
 	skip := map[int64]bool{skipOne: true}
-	upgradeKeeper := keeper.NewKeeper(skip, s.key, s.encCfg.Codec, s.T().TempDir(), nil, authtypes.NewModuleAddress(govtypes.ModuleName).String())
+	upgradeKeeper := keeper.NewKeeper(skip, s.key, s.encCfg.Codec, s.T().TempDir(), nil, string(authtypes.NewModuleAddress(govtypes.ModuleName).String()))
 	upgradeKeeper.SetVersionSetter(s.baseApp)
 	s.Require().True(upgradeKeeper.IsSkipHeight(9))
 	s.Require().False(upgradeKeeper.IsSkipHeight(10))
@@ -279,7 +285,7 @@ func (s *KeeperTestSuite) TestMigrations() {
 	vmBefore := s.upgradeKeeper.GetModuleVersionMap(s.ctx)
 	s.upgradeKeeper.SetUpgradeHandler("dummy", func(_ sdk.Context, _ types.Plan, vm module.VersionMap) (module.VersionMap, error) {
 		// simulate upgrading the bank module
-		vm["bank"] = vm["bank"] + 1 //nolint:gocritic
+		vm["bank"] = vm["bank"] + 1
 		return vm, nil
 	})
 	dummyPlan := types.Plan{

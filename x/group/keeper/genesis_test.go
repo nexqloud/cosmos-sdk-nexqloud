@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cometbft/cometbft/libs/log"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -66,7 +66,7 @@ func (s *GenesisTestSuite) SetupTest() {
 
 	s.sdkCtx = testCtx.Ctx
 	s.cdc = codec.NewProtoCodec(encCfg.InterfaceRegistry)
-	s.ctx = s.sdkCtx
+	s.ctx = sdk.WrapSDKContext(s.sdkCtx)
 
 	s.keeper = keeper.NewKeeper(key, s.cdc, bApp.MsgServiceRouter(), accountKeeper, group.DefaultConfig())
 }

@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/crypto/tmhash"
+	tmbytes "github.com/cometbft/cometbft/libs/bytes"
+	"sigs.k8s.io/yaml"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/evidence/exported"
@@ -25,6 +26,11 @@ func (e *Equivocation) Route() string { return RouteEquivocation }
 
 // Type returns the Evidence Handler type for an Equivocation type.
 func (e *Equivocation) Type() string { return TypeEquivocation }
+
+func (e *Equivocation) String() string {
+	bz, _ := yaml.Marshal(e)
+	return string(bz)
+}
 
 // Hash returns the hash of an Equivocation object.
 func (e *Equivocation) Hash() tmbytes.HexBytes {

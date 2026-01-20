@@ -5,15 +5,16 @@ import (
 	"testing"
 	"time"
 
+	abci "github.com/cometbft/cometbft/abci/types"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
+	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/bank/testutil"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -67,7 +68,7 @@ func BenchmarkOneBankSendTxPerBlock(b *testing.B) {
 	}
 
 	// construct genesis state
-	genAccs := []authtypes.GenesisAccount{&acc}
+	genAccs := []types.GenesisAccount{&acc}
 	s := createTestSuite(&testing.T{}, genAccs)
 	baseApp := s.App.BaseApp
 	ctx := baseApp.NewContext(false, tmproto.Header{})

@@ -3,9 +3,7 @@ package runtime
 import (
 	"fmt"
 
-	"cosmossdk.io/core/store"
-
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/cometbft/cometbft/abci/types"
 
 	runtimev1alpha1 "cosmossdk.io/api/cosmos/app/runtime/v1alpha1"
 	appv1alpha1 "cosmossdk.io/api/cosmos/app/v1alpha1"
@@ -18,25 +16,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/std"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-)
-
-type appModule struct {
-	app *App
-}
-
-func (m appModule) RegisterServices(configurator module.Configurator) {
-	err := m.app.registerRuntimeServices(configurator)
-	if err != nil {
-		panic(err)
-	}
-}
-
-func (m appModule) IsOnePerModuleType() {}
-func (m appModule) IsAppModule()        {}
-
-var (
-	_ appmodule.AppModule = appModule{}
-	_ module.HasServices  = appModule{}
 )
 
 // BaseAppOption is a depinject.AutoGroupType which can be used to pass
@@ -54,9 +33,6 @@ func init() {
 			ProvideTransientStoreKey,
 			ProvideMemoryStoreKey,
 			ProvideDeliverTx,
-			ProvideKVStoreService,
-			ProvideMemoryStoreService,
-			ProvideTransientStoreService,
 		),
 		appmodule.Invoke(SetupAppBuilder),
 	)
@@ -69,7 +45,6 @@ func ProvideApp() (
 	*AppBuilder,
 	codec.ProtoCodecMarshaler,
 	*baseapp.MsgServiceRouter,
-	appmodule.AppModule,
 ) {
 	interfaceRegistry := codectypes.NewInterfaceRegistry()
 	amino := codec.NewLegacyAmino()
@@ -79,17 +54,18 @@ func ProvideApp() (
 
 	cdc := codec.NewProtoCodec(interfaceRegistry)
 	msgServiceRouter := baseapp.NewMsgServiceRouter()
-	app := &App{
-		storeKeys:         nil,
-		interfaceRegistry: interfaceRegistry,
-		cdc:               cdc,
-		amino:             amino,
-		basicManager:      module.BasicManager{},
-		msgServiceRouter:  msgServiceRouter,
+	app := &AppBuilder{
+		&App{
+			storeKeys:         nil,
+			interfaceRegistry: interfaceRegistry,
+			cdc:               cdc,
+			amino:             amino,
+			basicManager:      module.BasicManager{},
+			msgServiceRouter:  msgServiceRouter,
+		},
 	}
-	appBuilder := &AppBuilder{app}
 
-	return interfaceRegistry, cdc, amino, appBuilder, cdc, msgServiceRouter, appModule{app}
+	return interfaceRegistry, cdc, amino, app, cdc, msgServiceRouter
 }
 
 type AppInputs struct {
@@ -164,19 +140,4 @@ func ProvideDeliverTx(appBuilder *AppBuilder) func(abci.RequestDeliverTx) abci.R
 	return func(tx abci.RequestDeliverTx) abci.ResponseDeliverTx {
 		return appBuilder.app.BaseApp.DeliverTx(tx)
 	}
-}
-
-func ProvideKVStoreService(config *runtimev1alpha1.Module, key depinject.ModuleKey, app *AppBuilder) store.KVStoreService {
-	storeKey := ProvideKVStoreKey(config, key, app)
-	return kvStoreService{key: storeKey}
-}
-
-func ProvideMemoryStoreService(key depinject.ModuleKey, app *AppBuilder) store.MemoryStoreService {
-	storeKey := ProvideMemoryStoreKey(key, app)
-	return memStoreService{key: storeKey}
-}
-
-func ProvideTransientStoreService(key depinject.ModuleKey, app *AppBuilder) store.TransientStoreService {
-	storeKey := ProvideTransientStoreKey(key, app)
-	return transientStoreService{key: storeKey}
 }

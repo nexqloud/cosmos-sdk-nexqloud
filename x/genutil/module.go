@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	modulev1 "cosmossdk.io/api/cosmos/genutil/module/v1"
 	"cosmossdk.io/core/appmodule"
@@ -132,9 +132,6 @@ func init() {
 	)
 }
 
-// GenutilInputs defines the inputs needed for the genutil module.
-//
-//nolint:revive
 type GenutilInputs struct {
 	depinject.In
 

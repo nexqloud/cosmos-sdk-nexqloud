@@ -2,15 +2,16 @@ package baseapp_test
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/cometbft/cometbft-db"
+	abci "github.com/cometbft/cometbft/abci/types"
+	tmjson "github.com/cometbft/cometbft/libs/json"
+	"github.com/cometbft/cometbft/libs/log"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"cosmossdk.io/depinject"
 
@@ -22,7 +23,6 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	store "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/testutil/configurator"
 	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -64,7 +64,7 @@ func TestBaseApp_BlockGas(t *testing.T) {
 		{"less than block gas meter", 10, false, false},
 		{"more than block gas meter", blockMaxGas, false, true},
 		{"more than block gas meter", uint64(float64(blockMaxGas) * 1.2), false, true},
-		{"consume MaxUint64", math.MaxUint64, false, true},
+		{"consume MaxUint64", math.MaxUint64, true, true},
 		{"consume MaxGasWanted", txtypes.MaxGasWanted, false, true},
 		{"consume block gas when panicked", 10, true, true},
 	}
@@ -81,14 +81,9 @@ func TestBaseApp_BlockGas(t *testing.T) {
 			err               error
 		)
 
-		err = depinject.Inject(configurator.NewAppConfig(
-			configurator.AuthModule(),
-			configurator.TxModule(),
-			configurator.ParamsModule(),
-			configurator.ConsensusModule(),
-			configurator.BankModule(),
-			configurator.StakingModule(),
-		),
+		appConfig := depinject.Configs(makeTestConfig())
+
+		err = depinject.Inject(appConfig,
 			&bankKeeper,
 			&accountKeeper,
 			&interfaceRegistry,
@@ -146,7 +141,7 @@ func TestBaseApp_BlockGas(t *testing.T) {
 
 			require.NoError(t, txBuilder.SetMsgs(msg))
 			txBuilder.SetFeeAmount(feeAmount)
-			txBuilder.SetGasLimit(txtypes.MaxGasWanted) // tx validation checks that gasLimit can't be bigger than this
+			txBuilder.SetGasLimit(uint64(simtestutil.DefaultConsensusParams.Block.MaxGas))
 
 			senderAccountNumber := accountKeeper.GetAccount(ctx, addr1).GetAccountNumber()
 			privs, accNums, accSeqs := []cryptotypes.PrivKey{priv1}, []uint64{senderAccountNumber}, []uint64{0}
@@ -172,13 +167,13 @@ func TestBaseApp_BlockGas(t *testing.T) {
 				require.Equal(t, []byte("ok"), okValue)
 			}
 			// check block gas is always consumed
-			baseGas := uint64(51822) // baseGas is the gas consumed before tx msg
+			baseGas := uint64(51682) // baseGas is the gas consumed before tx msg
 			expGasConsumed := addUint64Saturating(tc.gasToConsume, baseGas)
-			if expGasConsumed > txtypes.MaxGasWanted {
+			if expGasConsumed > uint64(simtestutil.DefaultConsensusParams.Block.MaxGas) {
 				// capped by gasLimit
-				expGasConsumed = txtypes.MaxGasWanted
+				expGasConsumed = uint64(simtestutil.DefaultConsensusParams.Block.MaxGas)
 			}
-			require.Equal(t, expGasConsumed, ctx.BlockGasMeter().GasConsumed())
+			require.Equal(t, expGasConsumed, ctx.BlockGasMeter().GasConsumed(), fmt.Sprintf("exp: %d, got: %d", expGasConsumed, ctx.BlockGasMeter().GasConsumed()))
 			// tx fee is always deducted
 			require.Equal(t, int64(0), bankKeeper.GetBalance(ctx, addr1, feeCoin.Denom).Amount.Int64())
 			// sender's sequence is always increased
@@ -220,7 +215,7 @@ func createTestTx(txConfig client.TxConfig, txBuilder client.TxBuilder, privs []
 			Sequence:      accSeqs[i],
 		}
 		sigV2, err := tx.SignWithPrivKey(
-			nil, txConfig.SignModeHandler().DefaultMode(), signerData, //nolint:staticcheck
+			txConfig.SignModeHandler().DefaultMode(), signerData,
 			txBuilder, priv, txConfig, accSeqs[i])
 		if err != nil {
 			return nil, nil, err

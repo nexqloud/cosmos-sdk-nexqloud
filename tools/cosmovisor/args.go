@@ -286,9 +286,7 @@ func (cfg *Config) SetCurrentUpgrade(u upgradetypes.Plan) (rerr error) {
 
 	// remove link if it exists
 	if _, err := os.Stat(link); err == nil {
-		if err := os.Remove(link); err != nil {
-			return fmt.Errorf("failed to remove existing link: %w", err)
-		}
+		os.Remove(link)
 	}
 
 	// point to the new directory

@@ -336,8 +336,11 @@ func (k Keeper) CreateGroupPolicy(goCtx context.Context, req *group.MsgCreateGro
 		derivationKey := make([]byte, 8)
 		binary.BigEndian.PutUint64(derivationKey, nextAccVal)
 
-		accountCredentials := authtypes.NewModuleCredential(group.ModuleName, [][]byte{{GroupPolicyTablePrefix}, derivationKey})
-		accountAddr = sdk.AccAddress(accountCredentials.Address())
+		ac, err := authtypes.NewModuleCredential(group.ModuleName, []byte{GroupPolicyTablePrefix}, derivationKey)
+		if err != nil {
+			return nil, err
+		}
+		accountAddr = sdk.AccAddress(ac.Address())
 		if k.accKeeper.GetAccount(ctx, accountAddr) != nil {
 			// handle a rare collision, in which case we just go on to the
 			// next sequence value and derive a new address.
@@ -345,7 +348,7 @@ func (k Keeper) CreateGroupPolicy(goCtx context.Context, req *group.MsgCreateGro
 		}
 
 		// group policy accounts are unclaimable base accounts
-		account, err := authtypes.NewBaseAccountWithPubKey(accountCredentials)
+		account, err := authtypes.NewBaseAccountWithPubKey(ac)
 		if err != nil {
 			return nil, sdkerrors.Wrap(err, "could not create group policy account")
 		}
@@ -547,7 +550,7 @@ func (k Keeper) SubmitProposal(goCtx context.Context, req *group.MsgSubmitPropos
 		// Consider proposers as Yes votes
 		for i := range proposers {
 			ctx.GasMeter().ConsumeGas(gasCostPerIteration, "vote on proposal")
-			_, err = k.Vote(ctx, &group.MsgVote{
+			_, err = k.Vote(sdk.WrapSDKContext(ctx), &group.MsgVote{
 				ProposalId: id,
 				Voter:      proposers[i],
 				Option:     group.VOTE_OPTION_YES,
@@ -558,7 +561,7 @@ func (k Keeper) SubmitProposal(goCtx context.Context, req *group.MsgSubmitPropos
 		}
 
 		// Then try to execute the proposal
-		_, err = k.Exec(ctx, &group.MsgExec{
+		_, err = k.Exec(sdk.WrapSDKContext(ctx), &group.MsgExec{
 			ProposalId: id,
 			// We consider the first proposer as the MsgExecRequest signer
 			// but that could be revisited (eg using the group policy)
@@ -669,7 +672,7 @@ func (k Keeper) Vote(goCtx context.Context, req *group.MsgVote) (*group.MsgVoteR
 
 	// Try to execute proposal immediately
 	if req.Exec == group.Exec_EXEC_TRY {
-		_, err = k.Exec(ctx, &group.MsgExec{
+		_, err = k.Exec(sdk.WrapSDKContext(ctx), &group.MsgExec{
 			ProposalId: id,
 			Executor:   voterAddr,
 		})
@@ -712,6 +715,7 @@ func (k Keeper) doTallyAndUpdate(ctx sdk.Context, p *group.Proposal, electorate 
 		} else {
 			p.Status = group.PROPOSAL_STATUS_REJECTED
 		}
+
 	}
 
 	return nil
@@ -781,6 +785,16 @@ func (k Keeper) Exec(goCtx context.Context, req *group.MsgExec) (*group.MsgExecR
 	// If proposal has successfully run, delete it from state.
 	if proposal.ExecutorResult == group.PROPOSAL_EXECUTOR_RESULT_SUCCESS {
 		if err := k.pruneProposal(ctx, proposal.Id); err != nil {
+			return nil, err
+		}
+
+		// Emit event for proposal finalized with its result
+		if err := ctx.EventManager().EmitTypedEvent(
+			&group.EventProposalPruned{
+				ProposalId:  proposal.Id,
+				Status:      proposal.Status,
+				TallyResult: &proposal.FinalTallyResult,
+			}); err != nil {
 			return nil, err
 		}
 	} else {

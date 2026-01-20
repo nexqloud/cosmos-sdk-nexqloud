@@ -1,5 +1,7 @@
 package genutil
 
+// DONTCOVER
+
 import (
 	"encoding/json"
 	"errors"
@@ -10,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	cfg "github.com/tendermint/tendermint/config"
-	tmtypes "github.com/tendermint/tendermint/types"
+	cfg "github.com/cometbft/cometbft/config"
+	tmtypes "github.com/cometbft/cometbft/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -125,9 +127,6 @@ func CollectTxs(cdc codec.JSONCodec, txJSONDecoder sdk.TxDecoder, moniker, genTx
 			return appGenTxs, persistentPeers, fmt.Errorf("expected TxWithMemo, got %T", genTx)
 		}
 		nodeAddrIP := memoTx.GetMemo()
-		if len(nodeAddrIP) == 0 {
-			return appGenTxs, persistentPeers, fmt.Errorf("failed to find node's address and IP in %s", fo.Name())
-		}
 
 		// genesis transactions must be single-message
 		msgs := genTx.GetMsgs()

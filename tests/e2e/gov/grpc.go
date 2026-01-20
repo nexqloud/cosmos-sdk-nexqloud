@@ -400,6 +400,7 @@ func (s *E2ETestSuite) TestGetParamsGRPC() {
 		s.Run(tc.name, func() {
 			resp, err := testutil.GetRequest(tc.url)
 			s.Require().NoError(err)
+
 			err = val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType)
 
 			if tc.expErr {

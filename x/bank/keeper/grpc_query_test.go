@@ -96,7 +96,7 @@ func (suite *KeeperTestSuite) TestSpendableBalances() {
 	ctx = ctx.WithBlockTime(time.Now())
 	queryClient := suite.mockQueryClient(ctx)
 
-	_, err := queryClient.SpendableBalances(ctx, &types.QuerySpendableBalancesRequest{})
+	_, err := queryClient.SpendableBalances(sdk.WrapSDKContext(ctx), &types.QuerySpendableBalancesRequest{})
 	suite.Require().Error(err)
 
 	pageReq := &query.PageRequest{
@@ -108,7 +108,7 @@ func (suite *KeeperTestSuite) TestSpendableBalances() {
 	acc := authtypes.NewBaseAccountWithAddress(addr)
 
 	suite.mockSpendableCoins(ctx, acc)
-	res, err := queryClient.SpendableBalances(ctx, req)
+	res, err := queryClient.SpendableBalances(sdk.WrapSDKContext(ctx), req)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(res)
 	suite.True(res.Balances.IsZero())
@@ -132,7 +132,7 @@ func (suite *KeeperTestSuite) TestSpendableBalances() {
 	queryClient = suite.mockQueryClient(ctx)
 
 	suite.mockSpendableCoins(ctx, vacc)
-	res, err = queryClient.SpendableBalances(ctx, req)
+	res, err = queryClient.SpendableBalances(sdk.WrapSDKContext(ctx), req)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(res)
 	suite.Equal(2, res.Balances.Len())
@@ -330,7 +330,7 @@ func (suite *KeeperTestSuite) QueryDenomsMetadataRequest() {
 			suite.SetupTest() // reset
 
 			tc.malleate()
-			ctx := suite.ctx
+			ctx := sdk.WrapSDKContext(suite.ctx)
 
 			res, err := suite.queryClient.DenomsMetadata(ctx, req)
 
@@ -407,7 +407,7 @@ func (suite *KeeperTestSuite) QueryDenomMetadataRequest() {
 			suite.SetupTest() // reset
 
 			tc.malleate()
-			ctx := suite.ctx
+			ctx := sdk.WrapSDKContext(suite.ctx)
 
 			res, err := suite.queryClient.DenomMetadata(ctx, req)
 

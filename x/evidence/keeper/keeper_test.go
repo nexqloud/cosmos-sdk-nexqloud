@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/suite"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
@@ -34,6 +34,10 @@ var (
 		sdk.ValAddress(pubkeys[1].Address()),
 		sdk.ValAddress(pubkeys[2].Address()),
 	}
+
+	// The default power validators are initialized to have within tests
+	initAmt   = sdk.TokensFromConsensusPower(200, sdk.DefaultPowerReduction)
+	initCoins = sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, initAmt))
 )
 
 func newPubKey(pk string) (res cryptotypes.PubKey) {

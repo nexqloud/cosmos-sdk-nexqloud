@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	dbm "github.com/cosmos/cosmos-db"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	dbm "github.com/cometbft/cometbft-db"
+	abci "github.com/cometbft/cometbft/abci/types"
+	tmjson "github.com/cometbft/cometbft/libs/json"
+	"github.com/cometbft/cometbft/libs/log"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	tmtypes "github.com/cometbft/cometbft/types"
 
 	"cosmossdk.io/depinject"
 	"cosmossdk.io/math"
@@ -36,7 +36,7 @@ const DefaultGenTxGas = 10000000
 var DefaultConsensusParams = &tmproto.ConsensusParams{
 	Block: &tmproto.BlockParams{
 		MaxBytes: 200000,
-		MaxGas:   2000000,
+		MaxGas:   100_000_000,
 	},
 	Evidence: &tmproto.EvidenceParams{
 		MaxAgeNumBlocks: 302400,
@@ -104,6 +104,21 @@ func SetupAtGenesis(appConfig depinject.Config, extraOutputs ...interface{}) (*r
 	cfg := DefaultStartUpConfig()
 	cfg.AtGenesis = true
 	return SetupWithConfiguration(appConfig, cfg, extraOutputs...)
+}
+
+// NextBlock starts a new block.
+func NextBlock(app *runtime.App, ctx sdk.Context, jumpTime time.Duration) sdk.Context {
+	app.EndBlock(abci.RequestEndBlock{Height: ctx.BlockHeight()})
+
+	app.Commit()
+
+	newBlockTime := ctx.BlockTime().Add(jumpTime)
+	nextHeight := ctx.BlockHeight() + 1
+	newHeader := tmproto.Header{Height: nextHeight, Time: newBlockTime}
+
+	app.BeginBlock(abci.RequestBeginBlock{Header: newHeader})
+
+	return app.NewUncachedContext(false, newHeader)
 }
 
 // SetupWithConfiguration initializes a new runtime.App. A Nop logger is set in runtime.App.

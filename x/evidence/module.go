@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	modulev1 "cosmossdk.io/api/cosmos/evidence/module/v1"
 	"cosmossdk.io/core/appmodule"
@@ -176,12 +176,6 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	simulation.RandomizedGenState(simState)
 }
 
-// ProposalContents returns all the evidence content functions used to
-// simulate governance proposals.
-func (am AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
-	return nil
-}
-
 // RegisterStoreDecoder registers a decoder for evidence module's types
 func (am AppModule) RegisterStoreDecoder(sdr sdk.StoreDecoderRegistry) {
 	sdr[types.StoreKey] = simulation.NewDecodeStore(am.keeper)
@@ -202,7 +196,6 @@ func init() {
 	)
 }
 
-//nolint:revive
 type EvidenceInputs struct {
 	depinject.In
 
@@ -213,7 +206,6 @@ type EvidenceInputs struct {
 	SlashingKeeper types.SlashingKeeper
 }
 
-//nolint:revive
 type EvidenceOutputs struct {
 	depinject.Out
 

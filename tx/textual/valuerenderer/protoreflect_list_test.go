@@ -26,9 +26,6 @@ func (x *genericList[T]) Len() int {
 }
 
 func (x *genericList[T]) Get(i int) protoreflect.Value {
-	if x.Len() == 0 {
-		return protoreflect.Value{}
-	}
 	return protoreflect.ValueOfMessage((*x.list)[i].ProtoReflect())
 }
 

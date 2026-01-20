@@ -3,7 +3,7 @@ package mock
 import (
 	"testing"
 
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/cometbft/cometbft-db"
 	"github.com/stretchr/testify/require"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -12,7 +12,6 @@ import (
 
 func TestStore(t *testing.T) {
 	db := dbm.NewMemDB()
-
 	cms := NewCommitMultiStore()
 
 	key := sdk.NewKVStoreKey("test")

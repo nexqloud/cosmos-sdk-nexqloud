@@ -14,28 +14,35 @@ import (
 	"syscall"
 	"time"
 
-	dbm "github.com/cosmos/cosmos-db"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	tmcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
-	tmcfg "github.com/tendermint/tendermint/config"
-	tmcli "github.com/tendermint/tendermint/libs/cli"
-	tmflags "github.com/tendermint/tendermint/libs/cli/flags"
-	tmlog "github.com/tendermint/tendermint/libs/log"
+
+	"cosmossdk.io/log"
+	dbm "github.com/cometbft/cometbft-db"
+	tmcmd "github.com/cometbft/cometbft/cmd/cometbft/commands"
+	tmcfg "github.com/cometbft/cometbft/config"
+	tmlog "github.com/cometbft/cometbft/libs/log"
+	"github.com/cometbft/cometbft/node"
+	tmstore "github.com/cometbft/cometbft/store"
+	tmtypes "github.com/cometbft/cometbft/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server/config"
+	serverlog "github.com/cosmos/cosmos-sdk/server/log"
 	"github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/cosmos/cosmos-sdk/snapshots"
+	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store"
-	"github.com/cosmos/cosmos-sdk/store/snapshots"
-	snapshottypes "github.com/cosmos/cosmos-sdk/store/snapshots/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/mempool"
 	"github.com/cosmos/cosmos-sdk/version"
 )
+
+// DONTCOVER
 
 // ServerContextKey defines the context key used to retrieve a server.Context from
 // a command's Context.
@@ -150,24 +157,36 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate s
 		return err
 	}
 
-	var logger tmlog.Logger
+	var opts []log.Option
 	if serverCtx.Viper.GetString(flags.FlagLogFormat) == tmcfg.LogFormatJSON {
-		logger = tmlog.NewTMJSONLogger(tmlog.NewSyncWriter(os.Stdout))
-	} else {
-		logger = tmlog.NewTMLogger(tmlog.NewSyncWriter(os.Stdout))
-	}
-	logger, err = tmflags.ParseLogLevel(config.LogLevel, logger, tmcfg.DefaultLogLevel)
-	if err != nil {
-		return err
+		opts = append(opts, log.OutputJSONOption())
 	}
 
-	// Check if the tendermint flag for trace logging is set if it is then setup
-	// a tracing logger in this app as well.
-	if serverCtx.Viper.GetBool(tmcli.TraceFlag) {
-		logger = tmlog.NewTracingLogger(logger)
+	opts = append(opts,
+		log.ColorOption(!serverCtx.Viper.GetBool(flags.FlagLogNoColor)),
+		// We use CometBFT flag (cmtcli.TraceFlag) for trace logging.
+		log.TraceOption(serverCtx.Viper.GetBool(FlagTrace)))
+
+	// check and set filter level or keys for the logger if any
+	logLvlStr := serverCtx.Viper.GetString(flags.FlagLogLevel)
+	if logLvlStr != "" {
+		logLvl, err := zerolog.ParseLevel(logLvlStr)
+		switch {
+		case err != nil:
+			// If the log level is not a valid zerolog level, then we try to parse it as a key filter.
+			filterFunc, err := log.ParseLogLevel(logLvlStr)
+			if err != nil {
+				return err
+			}
+
+			opts = append(opts, log.FilterOption(filterFunc))
+		default:
+			opts = append(opts, log.LevelOption(logLvl))
+		}
 	}
 
-	serverCtx.Logger = logger.With("module", "server")
+	logger := log.NewLogger(tmlog.NewSyncWriter(os.Stdout), opts...).With(log.ModuleKey, "server")
+	serverCtx.Logger = serverlog.CometLoggerWrapper{Logger: logger}
 
 	return SetCmdServerContext(cmd, serverCtx)
 }
@@ -216,12 +235,16 @@ func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customCo
 			return nil, fmt.Errorf("error in config file: %w", err)
 		}
 
-		conf.RPC.PprofListenAddress = "localhost:6060"
-		conf.P2P.RecvRate = 5120000
-		conf.P2P.SendRate = 5120000
-		conf.Consensus.TimeoutCommit = 5 * time.Second
+		defaultCometCfg := tmcfg.DefaultConfig()
+		// The SDK is opinionated about those comet values, so we set them here.
+		// We verify first that the user has not changed them for not overriding them.
+		if conf.Consensus.TimeoutCommit == defaultCometCfg.Consensus.TimeoutCommit {
+			conf.Consensus.TimeoutCommit = 5 * time.Second
+		}
+		if conf.RPC.PprofListenAddress == defaultCometCfg.RPC.PprofListenAddress {
+			conf.RPC.PprofListenAddress = "localhost:6060"
+		}
 		tmcfg.WriteConfigFile(tmCfgFile, conf)
-
 	case err != nil:
 		return nil, err
 
@@ -278,8 +301,9 @@ func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customCo
 // add server commands
 func AddCommands(rootCmd *cobra.Command, defaultNodeHome string, appCreator types.AppCreator, appExport types.AppExporter, addStartFlags types.ModuleInitFlags) {
 	tendermintCmd := &cobra.Command{
-		Use:   "tendermint",
-		Short: "Tendermint subcommands",
+		Use:     "tendermint",
+		Aliases: []string{"comet", "cometbft"},
+		Short:   "Tendermint subcommands",
 	}
 
 	tendermintCmd.AddCommand(
@@ -289,6 +313,7 @@ func AddCommands(rootCmd *cobra.Command, defaultNodeHome string, appCreator type
 		VersionCmd(),
 		tmcmd.ResetAllCmd,
 		tmcmd.ResetStateCmd,
+		BootstrapStateCmd(appCreator),
 	)
 
 	startCmd := StartCmd(appCreator, defaultNodeHome)
@@ -371,14 +396,8 @@ func WaitForQuitSignals() ErrorCode {
 func GetAppDBBackend(opts types.AppOptions) dbm.BackendType {
 	rv := cast.ToString(opts.Get("app-db-backend"))
 	if len(rv) == 0 {
-		rv = cast.ToString(opts.Get("db-backend"))
+		rv = cast.ToString(opts.Get("db_backend"))
 	}
-
-	// Cosmos SDK has migrated to cosmos-db which does not support all the backends which tm-db supported
-	if rv == "cleveldb" || rv == "badgerdb" || rv == "boltdb" {
-		panic(fmt.Sprintf("invalid app-db-backend %q, use %q, %q, %q instead", rv, dbm.GoLevelDBBackend, dbm.PebbleDBBackend, dbm.RocksDBBackend))
-	}
-
 	if len(rv) != 0 {
 		return dbm.BackendType(rv)
 	}
@@ -439,12 +458,20 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 		panic(err)
 	}
 
-	snapshotDir := filepath.Join(cast.ToString(appOpts.Get(flags.FlagHome)), "data", "snapshots")
-	snapshotDB, err := dbm.NewDB("metadata", GetAppDBBackend(appOpts), snapshotDir)
-	if err != nil {
-		panic(err)
+	homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
+	chainID := cast.ToString(appOpts.Get(flags.FlagChainID))
+	if chainID == "" {
+		// read the chainID from home directory (either from comet or genesis).
+		dbBackend := cast.ToString(appOpts.Get("db_backend"))
+		chainId, err := readChainIdFromHome(homeDir, dbBackend)
+		if err != nil {
+			panic(err)
+		}
+
+		chainID = chainId
 	}
-	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDir)
+
+	snapshotStore, err := GetSnapshotStore(appOpts)
 	if err != nil {
 		panic(err)
 	}
@@ -471,5 +498,59 @@ func DefaultBaseappOptions(appOpts types.AppOptions) []func(*baseapp.BaseApp) {
 				mempool.SenderNonceMaxTxOpt(cast.ToInt(appOpts.Get(FlagMempoolMaxTxs))),
 			),
 		),
+		baseapp.SetIAVLLazyLoading(cast.ToBool(appOpts.Get(FlagIAVLLazyLoading))),
+		baseapp.SetChainID(chainID),
 	}
+}
+
+// readChainIdFromHome reads chain id from home directory.
+func readChainIdFromHome(homeDir string, dbBackend string) (string, error) {
+	cfg := tmcfg.DefaultConfig()
+	cfg.SetRoot(homeDir)
+	cfg.BaseConfig.DBBackend = dbBackend
+
+	// if the node's current height is not zero then try to read the chainID from comet db.
+	db, err := node.DefaultDBProvider(&node.DBContext{ID: "blockstore", Config: cfg})
+	if err != nil {
+		return "", err
+	}
+
+	blockStore := tmstore.NewBlockStore(db)
+	defer func() {
+		if err := blockStore.Close(); err != nil {
+			panic(err)
+		}
+	}()
+
+	// if the blockStore.LoadBaseMeta() is nil (no blocks are created/synced so far), fallback to genesis chain-id.
+	baseMeta := blockStore.LoadBaseMeta()
+	if baseMeta != nil {
+		return baseMeta.Header.ChainID, nil
+	}
+
+	appGenesis, err := tmtypes.GenesisDocFromFile(filepath.Join(homeDir, "config", "genesis.json"))
+	if err != nil {
+		return "", err
+	}
+
+	return appGenesis.ChainID, nil
+}
+
+func GetSnapshotStore(appOpts types.AppOptions) (*snapshots.Store, error) {
+	homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
+	snapshotDir := filepath.Join(homeDir, "data", "snapshots")
+	if err := os.MkdirAll(snapshotDir, 0o744); err != nil {
+		return nil, fmt.Errorf("failed to create snapshots directory: %w", err)
+	}
+
+	snapshotDB, err := dbm.NewDB("metadata", GetAppDBBackend(appOpts), snapshotDir)
+	if err != nil {
+		return nil, err
+	}
+	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDir)
+	if err != nil {
+		return nil, err
+	}
+
+	return snapshotStore, nil
 }

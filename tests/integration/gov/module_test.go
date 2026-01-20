@@ -3,33 +3,44 @@ package gov_test
 import (
 	"testing"
 
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"gotest.tools/v3/assert"
+	dbm "github.com/cometbft/cometbft-db"
+	abcitypes "github.com/cometbft/cometbft/abci/types"
+	tmjson "github.com/cometbft/cometbft/libs/json"
+	"github.com/cometbft/cometbft/libs/log"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/testutil/configurator"
+	"cosmossdk.io/simapp"
+
+	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/cosmos/cosmos-sdk/server"
 	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
-	_ "github.com/cosmos/cosmos-sdk/x/mint"
 )
 
 func TestItCreatesModuleAccountOnInitBlock(t *testing.T) {
-	var accountKeeper authkeeper.AccountKeeper
-	app, err := simtestutil.SetupAtGenesis(
-		configurator.NewAppConfig(
-			configurator.ParamsModule(),
-			configurator.AuthModule(),
-			configurator.StakingModule(),
-			configurator.BankModule(),
-			configurator.GovModule(),
-			configurator.ConsensusModule(),
-		),
-		&accountKeeper,
+	db := dbm.NewMemDB()
+
+	appOptions := make(simtestutil.AppOptionsMap, 0)
+	appOptions[flags.FlagHome] = simapp.DefaultNodeHome
+	appOptions[server.FlagInvCheckPeriod] = 5
+
+	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, appOptions, baseapp.SetChainID("test-chain-id"))
+
+	genesisState := simapp.GenesisStateWithSingleValidator(t, app)
+	stateBytes, err := tmjson.Marshal(genesisState)
+	require.NoError(t, err)
+
+	app.InitChain(
+		abcitypes.RequestInitChain{
+			AppStateBytes: stateBytes,
+			ChainId:       "test-chain-id",
+		},
 	)
-	assert.NilError(t, err)
 
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	acc := accountKeeper.GetAccount(ctx, authtypes.NewModuleAddress(types.ModuleName))
-	assert.Assert(t, acc != nil)
+	acc := app.AccountKeeper.GetAccount(ctx, authtypes.NewModuleAddress(types.ModuleName))
+	require.NotNil(t, acc)
 }

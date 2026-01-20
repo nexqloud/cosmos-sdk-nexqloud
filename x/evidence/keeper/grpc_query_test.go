@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/evidence/exported"
 	"github.com/cosmos/cosmos-sdk/x/evidence/types"
@@ -69,7 +70,9 @@ func (suite *KeeperTestSuite) TestQueryEvidence() {
 			suite.SetupTest()
 
 			tc.malleate()
-			res, err := suite.queryClient.Evidence(suite.ctx, req)
+			ctx := sdk.WrapSDKContext(suite.ctx)
+
+			res, err := suite.queryClient.Evidence(ctx, req)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
@@ -129,7 +132,9 @@ func (suite *KeeperTestSuite) TestQueryAllEvidence() {
 			suite.SetupTest()
 
 			tc.malleate()
-			res, err := suite.queryClient.AllEvidence(suite.ctx, req)
+			ctx := sdk.WrapSDKContext(suite.ctx)
+
+			res, err := suite.queryClient.AllEvidence(ctx, req)
 
 			if tc.expPass {
 				suite.Require().NoError(err)

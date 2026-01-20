@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	"cosmossdk.io/core/appmodule"
 
@@ -121,7 +121,7 @@ type AppModule struct {
 func NewAppModule(cdc codec.Codec, ak feegrant.AccountKeeper, bk feegrant.BankKeeper, keeper keeper.Keeper, registry cdctypes.InterfaceRegistry) AppModule {
 	return AppModule{
 		AppModuleBasic: AppModuleBasic{cdc: cdc},
-		keeper:         keeper,
+		keeper:         keeper.SetBankKeeper(bk), // Super ugly hack to not be api breaking in v0.50 and v0.47
 		accountKeeper:  ak,
 		bankKeeper:     bk,
 		registry:       registry,
@@ -197,7 +197,7 @@ type FeegrantInputs struct {
 func ProvideModule(in FeegrantInputs) (keeper.Keeper, appmodule.AppModule) {
 	k := keeper.NewKeeper(in.Cdc, in.Key, in.AccountKeeper)
 	m := NewAppModule(in.Cdc, in.AccountKeeper, in.BankKeeper, k, in.Registry)
-	return k, m
+	return k.SetBankKeeper(in.BankKeeper) /* depinject ux improvement */, m
 }
 
 // AppModuleSimulation functions
@@ -205,12 +205,6 @@ func ProvideModule(in FeegrantInputs) (keeper.Keeper, appmodule.AppModule) {
 // GenerateGenesisState creates a randomized GenState of the feegrant module.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	simulation.RandomizedGenState(simState)
-}
-
-// ProposalContents returns all the feegrant content functions used to
-// simulate governance proposals.
-func (AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
-	return nil
 }
 
 // RegisterStoreDecoder registers a decoder for feegrant module's types

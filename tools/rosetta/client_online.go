@@ -13,13 +13,13 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/version"
 
-	abcitypes "github.com/tendermint/tendermint/abci/types"
+	abcitypes "github.com/cometbft/cometbft/abci/types"
 
 	rosettatypes "github.com/coinbase/rosetta-sdk-go/types"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/tendermint/tendermint/rpc/client/http"
+	"github.com/cometbft/cometbft/rpc/client/http"
 	"google.golang.org/grpc"
 
 	crgerrs "cosmossdk.io/tools/rosetta/lib/errors"
@@ -31,8 +31,8 @@ import (
 	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bank "github.com/cosmos/cosmos-sdk/x/bank/types"
 
+	tmrpc "github.com/cometbft/cometbft/rpc/client"
 	"github.com/cosmos/cosmos-sdk/types/query"
-	tmrpc "github.com/tendermint/tendermint/rpc/client"
 )
 
 // interface assertion
@@ -144,31 +144,6 @@ func (c *Client) Ready() error {
 	return nil
 }
 
-func (c *Client) GenesisBlock(ctx context.Context) (crgtypes.BlockResponse, error) {
-	var genesisHeight int64 = 1
-	return c.BlockByHeight(ctx, &genesisHeight)
-}
-
-func (c *Client) InitialHeightBlock(ctx context.Context) (crgtypes.BlockResponse, error) {
-	genesisChunk, err := c.tmRPC.GenesisChunked(ctx, 0)
-	if err != nil {
-		return crgtypes.BlockResponse{}, err
-	}
-	heightNum, err := extractInitialHeightFromGenesisChunk(genesisChunk.Data)
-	if err != nil {
-		return crgtypes.BlockResponse{}, err
-	}
-	return c.BlockByHeight(ctx, &heightNum)
-}
-
-func (c *Client) OldestBlock(ctx context.Context) (crgtypes.BlockResponse, error) {
-	status, err := c.tmRPC.Status(ctx)
-	if err != nil {
-		return crgtypes.BlockResponse{}, err
-	}
-	return c.BlockByHeight(ctx, &status.SyncInfo.EarliestBlockHeight)
-}
-
 func (c *Client) accountInfo(ctx context.Context, addr string, height *int64) (*SignerData, error) {
 	if height != nil {
 		strHeight := strconv.FormatInt(*height, 10)
@@ -225,6 +200,11 @@ func (c *Client) BlockByHash(ctx context.Context, hash string) (crgtypes.BlockRe
 }
 
 func (c *Client) BlockByHeight(ctx context.Context, height *int64) (crgtypes.BlockResponse, error) {
+	height, err := c.getHeight(ctx, height)
+
+	if err != nil {
+		return crgtypes.BlockResponse{}, crgerrs.WrapError(crgerrs.ErrBadGateway, err.Error())
+	}
 	block, err := c.tmRPC.Block(ctx, height)
 	if err != nil {
 		return crgtypes.BlockResponse{}, crgerrs.WrapError(crgerrs.ErrInternal, err.Error())
@@ -244,6 +224,10 @@ func (c *Client) BlockTransactionsByHash(ctx context.Context, hash string) (crgt
 }
 
 func (c *Client) BlockTransactionsByHeight(ctx context.Context, height *int64) (crgtypes.BlockTransactionsResponse, error) {
+	height, err := c.getHeight(ctx, height)
+	if err != nil {
+		return crgtypes.BlockTransactionsResponse{}, crgerrs.WrapError(crgerrs.ErrBadGateway, err.Error())
+	}
 	blockTxResp, err := c.blockTxs(ctx, height)
 	if err != nil {
 		return crgtypes.BlockTransactionsResponse{}, err
@@ -549,6 +533,25 @@ func (c *Client) blockTxs(ctx context.Context, height *int64) (crgtypes.BlockTra
 		BlockResponse: c.converter.ToRosetta().BlockResponse(blockInfo),
 		Transactions:  finalTxs,
 	}, nil
+}
+
+func (c *Client) getHeight(ctx context.Context, height *int64) (realHeight *int64, err error) {
+	if height != nil && *height == -1 {
+		genesisChunk, err := c.tmRPC.GenesisChunked(ctx, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		heightNum, err := extractInitialHeightFromGenesisChunk(genesisChunk.Data)
+		if err != nil {
+			return nil, err
+		}
+
+		realHeight = &heightNum
+	} else {
+		realHeight = height
+	}
+	return
 }
 
 var initialHeightRE = regexp.MustCompile(`"initial_height":"(\d+)"`)

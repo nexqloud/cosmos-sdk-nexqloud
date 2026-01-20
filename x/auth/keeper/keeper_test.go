@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -190,7 +190,7 @@ func (suite *KeeperTestSuite) TestInitGenesis() {
 	// Fix duplicate account numbers
 	pubKey1 := ed25519.GenPrivKey().PubKey()
 	pubKey2 := ed25519.GenPrivKey().PubKey()
-	accts := []sdk.AccountI{
+	accts := []types.AccountI{
 		&types.BaseAccount{
 			Address:       sdk.AccAddress(pubKey1.Address()).String(),
 			PubKey:        codectypes.UnsafePackAny(pubKey1),
@@ -229,7 +229,7 @@ func (suite *KeeperTestSuite) TestInitGenesis() {
 	suite.Require().Equal(len(keeperAccts), len(accts)+1, "number of accounts in the keeper vs in genesis state")
 	for i, genAcct := range accts {
 		genAcctAddr := genAcct.GetAddress()
-		var keeperAcct sdk.AccountI
+		var keeperAcct types.AccountI
 		for _, kacct := range keeperAccts {
 			if genAcctAddr.Equals(kacct.GetAddress()) {
 				keeperAcct = kacct

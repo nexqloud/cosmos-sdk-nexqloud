@@ -2,14 +2,12 @@
 
 ## Changelog
 
-* Dec 06, 2021: Initial Draft.
-* Feb 07, 2022: Draft read and concept-ACKed by the Ledger team.
-* May 16, 2022: Change status to Accepted.
-* Aug 11, 2022: Require signing over tx raw bytes.
-* Sep 07, 2022: Add custom `Msg`-renderers.
-* Sep 18, 2022: Structured format instead of lines of text
-* Nov 23, 2022: Specify CBOR encoding.
-* Dec 14, 2022: Mention exceptions for invertability.
+- Dec 06, 2021: Initial Draft.
+- Feb 07, 2022: Draft read and concept-ACKed by the Ledger team.
+- May 16, 2022: Change status to Accepted.
+- Aug 11, 2022: Require signing over tx raw bytes.
+- Sep 07, 2022: Add custom `Msg`-renderers.
+- Sep 18, 2022: Structured format instead of lines of text
 
 ## Status
 
@@ -23,8 +21,8 @@ This ADR specifies SIGN_MODE_TEXTUAL, a new string-based sign mode that is targe
 
 Protobuf-based SIGN_MODE_DIRECT was introduced in [ADR-020](./adr-020-protobuf-transaction-encoding.md) and is intended to replace SIGN_MODE_LEGACY_AMINO_JSON in most situations, such as mobile wallets and CLI keyrings. However, the [Ledger](https://www.ledger.com/) hardware wallet is still using SIGN_MODE_LEGACY_AMINO_JSON for displaying the sign bytes to the user. Hardware wallets cannot transition to SIGN_MODE_DIRECT as:
 
-* SIGN_MODE_DIRECT is binary-based and thus not suitable for display to end-users. Technically, hardware wallets could simply display the sign bytes to the user. But this would be considered as blind signing, and is a security concern.
-* hardware cannot decode the protobuf sign bytes due to memory constraints, as the Protobuf definitions would need to be embedded on the hardware device.
+- SIGN_MODE_DIRECT is binary-based and thus not suitable for display to end-users. Technically, hardware wallets could simply display the sign bytes to the user. But this would be considered as blind signing, and is a security concern.
+- hardware cannot decode the protobuf sign bytes due to memory constraints, as the Protobuf definitions would need to be embedded on the hardware device.
 
 In an effort to remove Amino from the SDK, a new sign mode needs to be created for hardware devices. [Initial discussions](https://github.com/cosmos/cosmos-sdk/issues/6513) propose a text-based sign mode, which this ADR formally specifies.
 
@@ -76,14 +74,6 @@ the composition of rendering and parsing.
 Note that the existence of an inverse function ensures that the
 rendered text contains the full information of the original transaction,
 not a hash or subset.
-
-We make an exception for invertibility for data which are too large to
-meaningfully display, such as byte strings longer than 32 bytes. We may then
-selectively render them with a cryptographically-strong hash. In these cases,
-it is still computationally infeasible to find a different transaction which
-has the same rendering. However, we must ensure that the hash computation is
-simple enough to be reliably executed independently, so at least the hash is
-itself reasonably verifiable when the raw byte string is not.
 
 ### Chain State
 
@@ -137,31 +127,8 @@ type SignDocTextual = []Screen
 We do not plan to use protobuf serialization to form the sequence of bytes
 that will be tranmitted and signed, in order to keep the decoder simple.
 We will use [CBOR](https://cbor.io) ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949.html)) instead.
-The encoding is defined by the following CDDL ([RFC 8610](https://www.rfc-editor.org/rfc/rfc8610)):
 
-```
-;;; CDDL (RFC 8610) Specification of SignDoc for SIGN_MODE_TEXTUAL.
-;;; Must be encoded using CBOR deterministic encoding (RFC 8949, section 4.2.1).
-
-;; A Textual document is an array of screens.
-screens = [* screen]
-
-;; A screen consists of a text string, an indentation, and the expert flag,
-;; represented as an integer-keyed map. All entries are optional
-;; and MUST be omitted from the encoding if empty, zero, or false.
-;; Text defaults to the empty string, indent defaults to zero,
-;; and expert defaults to false.
-screen = {
-  ? text_key: tstr,
-  ? indent_key: uint,
-  ? expert_key: bool,
-}
-
-;; Keys are small integers to keep the encoding small.
-text_key = 1
-indent_key = 2
-expert_key = 3
-```
+TODO: specify the details of the CBOR encoding.
 
 ## Details
 
@@ -266,16 +233,16 @@ Moreover, the renderer must provide 2 functions: one for formatting from Protobu
 
 ### Require signing over the `TxBody` and `AuthInfo` raw bytes
 
-Recall that the transaction bytes merklelized on chain are the Protobuf binary serialization of [TxRaw](https://github.com/cosmos/cosmos-sdk/blob/v0.46.0/proto/cosmos/tx/v1beta1/tx.proto#L33), which contains the `body_bytes` and `auth_info_bytes`. Moreover, the transaction hash is defined as the SHA256 hash of the `TxRaw` bytes. We require that the user signs over these bytes in SIGN_MODE_TEXTUAL, more specifically over the following string:
+Recall that the transaction bytes merklelized on chain are the Protobuf binary serialization of [TxRaw](hhttps://buf.build/cosmos/cosmos-sdk/docs/main:cosmos.tx.v1beta1#cosmos.tx.v1beta1.TxRaw), which contains the `body_bytes` and `auth_info_bytes`. Moreover, the transaction hash is defined as the SHA256 hash of the `TxRaw` bytes. We require that the user signs over these bytes in SIGN_MODE_TEXTUAL, more specifically over the following string:
 
 ```
 *Hash of raw bytes: <HEX(sha256(len(body_bytes) ++ body_bytes ++ len(auth_info_bytes) ++ auth_info_bytes))>
 ```
 
 where:
-* `++` denotes concatenation,
-* `HEX` is the hexadecimal representation of the bytes, all in capital letters, no `0x` prefix,
-* and `len()` is encoded as a Big-Endian uint64.
+- `++` denotes concatenation,
+- `HEX` is the hexadecimal representation of the bytes, all in capital letters, no `0x` prefix,
+- and `len()` is encoded as a Big-Endian uint64.
 
 This is to prevent transaction hash malleability. The point #1 about invertiblity assures that transaction `body` and `auth_info` values are not malleable, but the transaction hash still might be malleable with point #1 only, because the SIGN_MODE_TEXTUAL strings don't follow the byte ordering defined in `body_bytes` and `auth_info_bytes`. Without this hash, a malicious validator or exchange could intercept a transaction, modify its transaction hash _after_ the user signed it using SIGN_MODE_TEXTUAL (by tweaking the byte ordering inside `body_bytes` or `auth_info_bytes`), and then submit it to Tendermint.
 
@@ -435,7 +402,7 @@ Tip: 200 ibc/CDC4587874B85BEA4FCEC3CEA5A1195139799A1FEE711A07D972537E18FDA39D
 *This transaction has 1 other signer:
 *Signer (1/2):
 *Public Key: iQ...==
-*Sign mode: SIGN_MODE_DIRECT_AUX
+*Sign mode: Direct Aux
 *Sequence: 42
 *End of other signers
 *Hash of raw bytes: <hex_string>
@@ -582,7 +549,7 @@ Fee: 0.002 atom
 *This transaction has 1 other signer:
 *Signer (2/2):
 *Public Key: iR...==
-*Sign mode: SIGN_MODE_DIRECT
+*Sign mode: Direct
 *Sequence: 42
 *End of other signers
 *Hash of raw bytes: <hex_string>
@@ -596,30 +563,30 @@ SIGN_MODE_TEXTUAL is purely additive, and doesn't break any backwards compatibil
 
 ### Positive
 
-* Human-friendly way of signing in hardware devices.
-* Once SIGN_MODE_TEXTUAL is shipped, SIGN_MODE_LEGACY_AMINO_JSON can be deprecated and removed. On the longer term, once the ecosystem has totally migrated, Amino can be totally removed.
+- Human-friendly way of signing in hardware devices.
+- Once SIGN_MODE_TEXTUAL is shipped, SIGN_MODE_LEGACY_AMINO_JSON can be deprecated and removed. On the longer term, once the ecosystem has totally migrated, Amino can be totally removed.
 
 ### Negative
 
-* Some fields are still encoded in non-human-readable ways, such as public keys in hexadecimal.
-* New ledger app needs to be released, still unclear
+- Some fields are still encoded in non-human-readable ways, such as public keys in hexadecimal.
+- New ledger app needs to be released, still unclear
 
 ### Neutral
 
-* If the transaction is complex, the string array can be arbitrarily long, and some users might just skip some screens and blind sign.
+- If the transaction is complex, the string array can be arbitrarily long, and some users might just skip some screens and blind sign.
 
 ## Further Discussions
 
-* Some details on value renderers need to be polished, see [Annex 1](./adr-050-sign-mode-textual-annex1.md).
-* Are ledger apps able to support both SIGN_MODE_LEGACY_AMINO_JSON and SIGN_MODE_TEXTUAL at the same time?
-* Open question: should we add a Protobuf field option to allow app developers to overwrite the textual representation of certain Protobuf fields and message? This would be similar to Ethereum's [EIP4430](https://github.com/ethereum/EIPs/pull/4430), where the contract developer decides on the textual representation.
-* Internationalization.
+- Some details on value renderers need to be polished, see [Annex 1](./adr-050-sign-mode-textual-annex1.md).
+- Are ledger apps able to support both SIGN_MODE_LEGACY_AMINO_JSON and SIGN_MODE_TEXTUAL at the same time?
+- Open question: should we add a Protobuf field option to allow app developers to overwrite the textual representation of certain Protobuf fields and message? This would be similar to Ethereum's [EIP4430](https://github.com/ethereum/EIPs/pull/4430), where the contract developer decides on the textual representation.
+- Internationalization.
 
 ## References
 
-* [Annex 1](./adr-050-sign-mode-textual-annex1.md)
+- [Annex 1](./adr-050-sign-mode-textual-annex1.md)
 
-* Initial discussion: https://github.com/cosmos/cosmos-sdk/issues/6513
-* Living document used in the working group: https://hackmd.io/fsZAO-TfT0CKmLDtfMcKeA?both
-* Working group meeting notes: https://hackmd.io/7RkGfv_rQAaZzEigUYhcXw
-* Ethereum's "Described Transactions" https://github.com/ethereum/EIPs/pull/4430
+- Initial discussion: https://github.com/cosmos/cosmos-sdk/issues/6513
+- Living document used in the working group: https://hackmd.io/fsZAO-TfT0CKmLDtfMcKeA?both
+- Working group meeting notes: https://hackmd.io/7RkGfv_rQAaZzEigUYhcXw
+- Ethereum's "Described Transactions" https://github.com/ethereum/EIPs/pull/4430

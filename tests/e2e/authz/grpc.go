@@ -211,6 +211,7 @@ func (s *E2ETestSuite) TestQueryGranterGrantsGRPC() {
 				var authorizations authz.QueryGranterGrantsResponse
 				err := val.ClientCtx.Codec.UnmarshalJSON(resp, &authorizations)
 				require.NoError(err)
+				// FIXME: https://github.com/cosmos/cosmos-sdk/issues/10965
 				require.Len(authorizations.Grants, tc.numItems)
 			}
 		})
@@ -262,6 +263,7 @@ func (s *E2ETestSuite) TestQueryGranteeGrantsGRPC() {
 				var authorizations authz.QueryGranteeGrantsResponse
 				err := val.ClientCtx.Codec.UnmarshalJSON(resp, &authorizations)
 				require.NoError(err)
+				// FIXME: https://github.com/cosmos/cosmos-sdk/issues/10965
 				require.Len(authorizations.Grants, tc.numItems)
 			}
 		})

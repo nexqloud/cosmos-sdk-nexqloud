@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/cometbft/cometbft/libs/log"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -441,6 +441,10 @@ func (k Keeper) ReadUpgradeInfoFromDisk() (types.Plan, error) {
 	}
 
 	if err := json.Unmarshal(data, &upgradeInfo); err != nil {
+		return upgradeInfo, err
+	}
+
+	if err := upgradeInfo.ValidateBasic(); err != nil {
 		return upgradeInfo, err
 	}
 

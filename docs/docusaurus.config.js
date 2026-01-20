@@ -4,6 +4,9 @@
 const lightCodeTheme = require("prism-react-renderer/themes/github");
 const darkCodeTheme = require("prism-react-renderer/themes/dracula");
 
+// const lastVersion = "v0.47";
+const lastVersion = "current";
+
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: "Cosmos SDK",
@@ -37,16 +40,17 @@ const config = {
         docs: {
           sidebarPath: require.resolve("./sidebars.js"),
           routeBasePath: "/",
-          lastVersion: "v0.47",
+          lastVersion: lastVersion,
           versions: {
             current: {
               path: "main",
-              banner: "unreleased",
+              // banner: "unreleased",
             },
-            "v0.47": {
-              path: "v0.47",
-              label: "v0.47",
-            },
+            // "v0.47": {
+            //   label: "v0.47",
+            //   path: "v0.47",
+            //   banner: "none",
+            // },
           },
         },
         theme: {
@@ -120,8 +124,8 @@ const config = {
                 href: "https://hub.cosmos.network",
               },
               {
-                label: "Tendermint Core",
-                href: "https://docs.tendermint.com",
+                label: "CometBFT",
+                href: "https://docs.cometbft.com",
               },
               {
                 label: "IBC Go",
@@ -181,7 +185,7 @@ const config = {
       },
       algolia: {
         appId: "QLS2QSP47E",
-        apiKey: "067b84458bfa80c295e1d4f12c461911",
+        apiKey: "4d9feeb481e3cfef8f91bbc63e090042",
         indexName: "cosmos_network",
         contextualSearch: false,
       },
@@ -395,6 +399,10 @@ const config = {
           {
             from: ["/main/run-node/cosmovisor"],
             to: "/main/tooling/cosmovisor",
+          },
+          {
+            from: ["/main/migrations/pre-upgrade"],
+            to: "/main/building-apps/app-upgrade",
           },
         ],
       },

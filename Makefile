@@ -3,43 +3,40 @@
 PACKAGES_NOSIMULATION=$(shell go list ./... | grep -v '/simulation')
 PACKAGES_SIMTEST=$(shell go list ./... | grep '/simulation')
 export VERSION := $(shell echo $(shell git describe --always --match "v*") | sed 's/^v//')
-export TMVERSION := $(shell go list -m github.com/tendermint/tendermint | sed 's:.* ::')
+export TMVERSION := $(shell go list -m github.com/cometbft/cometbft | sed 's:.* ::')
 export COMMIT := $(shell git log -1 --format='%H')
 LEDGER_ENABLED ?= true
 BINDIR ?= $(GOPATH)/bin
 BUILDDIR ?= $(CURDIR)/build
-SIMAPP = ./simapp
 MOCKS_DIR = $(CURDIR)/tests/mocks
 HTTPS_GIT := https://github.com/cosmos/cosmos-sdk.git
 DOCKER := $(shell which docker)
 PROJECT_NAME = $(shell git remote get-url origin | xargs basename -s .git)
-# RocksDB is a native dependency, so we don't assume the library is installed.
-# Instead, it must be explicitly enabled and we warn when it is not.
-ENABLE_ROCKSDB ?= false
+DOCS_DOMAIN=docs.cosmos.network
 
 # process build tags
 build_tags = netgo
 ifeq ($(LEDGER_ENABLED),true)
-  ifeq ($(OS),Windows_NT)
-    GCCEXE = $(shell where gcc.exe 2> NUL)
-    ifeq ($(GCCEXE),)
-      $(error gcc.exe not installed for ledger support, please install or set LEDGER_ENABLED=false)
-    else
-      build_tags += ledger
-    endif
-  else
-    UNAME_S = $(shell uname -s)
-    ifeq ($(UNAME_S),OpenBSD)
-      $(warning OpenBSD detected, disabling ledger support (https://github.com/cosmos/cosmos-sdk/issues/1988))
-    else
-      GCC = $(shell command -v gcc 2> /dev/null)
-      ifeq ($(GCC),)
-        $(error gcc not installed for ledger support, please install or set LEDGER_ENABLED=false)
-      else
-        build_tags += ledger
-      endif
-    endif
-  endif
+	ifeq ($(OS),Windows_NT)
+	GCCEXE = $(shell where gcc.exe 2> NUL)
+	ifeq ($(GCCEXE),)
+		$(error gcc.exe not installed for ledger support, please install or set LEDGER_ENABLED=false)
+	else
+		build_tags += ledger
+	endif
+	else
+	UNAME_S = $(shell uname -s)
+	ifeq ($(UNAME_S),OpenBSD)
+		$(warning OpenBSD detected, disabling ledger support (https://github.com/cosmos/cosmos-sdk/issues/1988))
+	else
+		GCC = $(shell command -v gcc 2> /dev/null)
+		ifeq ($(GCC),)
+			$(error gcc not installed for ledger support, please install or set LEDGER_ENABLED=false)
+		else
+			build_tags += ledger
+		endif
+	endif
+	endif
 endif
 
 ifeq (secp,$(findstring secp,$(COSMOS_BUILD_OPTIONS)))
@@ -62,31 +59,24 @@ ldflags = -X github.com/cosmos/cosmos-sdk/version.Name=sim \
 		  -X github.com/cosmos/cosmos-sdk/version.Version=$(VERSION) \
 		  -X github.com/cosmos/cosmos-sdk/version.Commit=$(COMMIT) \
 		  -X "github.com/cosmos/cosmos-sdk/version.BuildTags=$(build_tags_comma_sep)" \
-			-X github.com/tendermint/tendermint/version.TMCoreSemVer=$(TMVERSION)
+		  -X github.com/cometbft/cometbft/version.TMCoreSemVer=$(TMVERSION)
 
-ifeq ($(ENABLE_ROCKSDB),true)
-  BUILD_TAGS += rocksdb_build
-  test_tags += rocksdb_build
-endif
 
 # DB backend selection
 ifeq (cleveldb,$(findstring cleveldb,$(COSMOS_BUILD_OPTIONS)))
   build_tags += gcc
 endif
 ifeq (badgerdb,$(findstring badgerdb,$(COSMOS_BUILD_OPTIONS)))
-  BUILD_TAGS += badgerdb
+  build_tags += badgerdb
 endif
 # handle rocksdb
 ifeq (rocksdb,$(findstring rocksdb,$(COSMOS_BUILD_OPTIONS)))
-  ifneq ($(ENABLE_ROCKSDB),true)
-    $(error Cannot use RocksDB backend unless ENABLE_ROCKSDB=true)
-  endif
   CGO_ENABLED=1
-  BUILD_TAGS += rocksdb
+  build_tags += rocksdb
 endif
 # handle boltdb
 ifeq (boltdb,$(findstring boltdb,$(COSMOS_BUILD_OPTIONS)))
-  BUILD_TAGS += boltdb
+  build_tags += boltdb
 endif
 
 ifeq (,$(findstring nostrip,$(COSMOS_BUILD_OPTIONS)))
@@ -124,7 +114,7 @@ build: BUILD_ARGS=-o $(BUILDDIR)/
 
 build-linux-amd64:
 	GOOS=linux GOARCH=amd64 LEDGER_ENABLED=false $(MAKE) build
-	
+
 build-linux-arm64:
 	GOOS=linux GOARCH=arm64 LEDGER_ENABLED=false $(MAKE) build
 
@@ -137,13 +127,7 @@ $(BUILDDIR)/:
 cosmovisor:
 	$(MAKE) -C tools/cosmovisor cosmovisor
 
-rosetta:
-	$(MAKE) -C tools/rosetta rosetta
-
-confix:
-	$(MAKE) -C tools/confix confix
-
-.PHONY: build build-linux-amd64 build-linux-arm64 cosmovisor rosetta confix
+.PHONY: build build-linux-amd64 build-linux-arm64 cosmovisor
 
 
 mocks: $(MOCKS_DIR)
@@ -162,9 +146,10 @@ $(MOCKS_DIR):
 distclean: clean tools-clean
 clean:
 	rm -rf \
-    $(BUILDDIR)/ \
-    artifacts/ \
-    tmp-swagger-gen/
+	$(BUILDDIR)/ \
+	artifacts/ \
+	tmp-swagger-gen/ \
+	.testnets
 
 .PHONY: distclean clean
 
@@ -184,19 +169,35 @@ go.sum: go.mod
 update-swagger-docs: statik
 	$(BINDIR)/statik -src=client/docs/swagger-ui -dest=client/docs -f -m
 	@if [ -n "$(git status --porcelain)" ]; then \
-        echo "\033[91mSwagger docs are out of sync!!!\033[0m";\
-        exit 1;\
-    else \
-        echo "\033[92mSwagger docs are in sync\033[0m";\
-    fi
+		echo "\033[91mSwagger docs are out of sync!!!\033[0m";\
+		exit 1;\
+	else \
+		echo "\033[92mSwagger docs are in sync\033[0m";\
+	fi
 .PHONY: update-swagger-docs
 
 godocs:
 	@echo "--> Wait a few seconds and visit http://localhost:6060/pkg/github.com/cosmos/cosmos-sdk/types"
 	godoc -http=:6060
 
+# This builds the docs.cosmos.network docs using docusaurus.
+# Old documentation, which have not been migrated to docusaurus are generated with vuepress.
 build-docs:
-	@cd docs && DOCS_DOMAIN=docs.cosmos.network sh ./build-all.sh
+	@echo "building docusaurus docs"
+	@cd docs && npm ci && npm run build
+	mv docs/build ~/output
+
+	@echo "building old docs"
+	@cd docs && \
+			while read -r branch path_prefix; do \
+			echo "building vuepress $${branch} docs" ; \
+			(git clean -fdx && git reset --hard && git checkout $${branch} && npm install && VUEPRESS_BASE="/$${path_prefix}/" npm run build) ; \
+			mkdir -p ~/output/$${path_prefix} ; \
+			cp -r .vuepress/dist/* ~/output/$${path_prefix}/ ; \
+	done < vuepress_versions ;	
+
+	@echo "setup domain"
+	@echo $(DOCS_DOMAIN) > ~/output/CNAME
 
 .PHONY: build-docs
 
@@ -322,12 +323,12 @@ SIM_COMMIT ?= true
 
 test-sim-benchmark:
 	@echo "Running application benchmark for numBlocks=$(SIM_NUM_BLOCKS), blockSize=$(SIM_BLOCK_SIZE). This may take awhile!"
-	@go test -mod=readonly -benchmem -run=^$$ $(SIMAPP) -bench ^BenchmarkFullAppSimulation$$  \
+	@cd ${CURRENT_DIR}/simapp && go test -mod=readonly -benchmem -run=^$$ $(.) -bench ^BenchmarkFullAppSimulation$$  \
 		-Enabled=true -NumBlocks=$(SIM_NUM_BLOCKS) -BlockSize=$(SIM_BLOCK_SIZE) -Commit=$(SIM_COMMIT) -timeout 24h
 
 test-sim-profile:
 	@echo "Running application benchmark for numBlocks=$(SIM_NUM_BLOCKS), blockSize=$(SIM_BLOCK_SIZE). This may take awhile!"
-	@go test -mod=readonly -benchmem -run=^$$ $(SIMAPP) -bench ^BenchmarkFullAppSimulation$$ \
+	@cd ${CURRENT_DIR}/simapp && go test -mod=readonly -benchmem -run=^$$ $(.) -bench ^BenchmarkFullAppSimulation$$ \
 		-Enabled=true -NumBlocks=$(SIM_NUM_BLOCKS) -BlockSize=$(SIM_BLOCK_SIZE) -Commit=$(SIM_COMMIT) -timeout 24h -cpuprofile cpu.out -memprofile mem.out
 
 .PHONY: test-sim-profile test-sim-benchmark
@@ -361,7 +362,9 @@ lint-fix:
 .PHONY: lint lint-fix
 
 format:
+	@go install mvdan.cc/gofumpt@latest
 	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(golangci_version)
+	find . -name '*.go' -type f -not -path "./vendor*" -not -path "*.git*" -not -path "./client/docs/statik/statik.go" -not -path "./tests/mocks/*" -not -name "*.pb.go" -not -name "*.pb.gw.go" -not -name "*.pulsar.go" -not -path "./crypto/keys/secp256k1/*" | xargs gofumpt -w -l
 	$(golangci_lint_cmd) run --fix
 .PHONY: format
 
@@ -395,7 +398,7 @@ devdoc-update:
 ###                                Protobuf                                 ###
 ###############################################################################
 
-protoVer=0.11.4
+protoVer=0.13.0
 protoImageName=ghcr.io/cosmos/proto-builder:$(protoVer)
 protoImage=$(DOCKER) run --rm -v $(CURDIR):/workspace --workdir /workspace $(protoImageName)
 
@@ -408,6 +411,7 @@ proto-gen:
 proto-swagger-gen:
 	@echo "Generating Protobuf Swagger"
 	@$(protoImage) sh ./scripts/protoc-swagger-gen.sh
+	$(MAKE) update-swagger-docs
 
 proto-format:
 	@$(protoImage) find ./ -name "*.proto" -exec clang-format -i {} \;
@@ -418,7 +422,7 @@ proto-lint:
 proto-check-breaking:
 	@$(protoImage) buf breaking --against $(HTTPS_GIT)#branch=main
 
-TM_URL              = https://raw.githubusercontent.com/tendermint/tendermint/v0.37.0-rc2/proto/tendermint
+CMT_URL              = https://raw.githubusercontent.com/cometbft/cometbft/v0.37.0/proto/tendermint
 
 TM_CRYPTO_TYPES     = proto/tendermint/crypto
 TM_ABCI_TYPES       = proto/tendermint/abci

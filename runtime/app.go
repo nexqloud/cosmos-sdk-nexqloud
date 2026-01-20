@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/cometbft/cometbft/abci/types"
 	"golang.org/x/exp/slices"
 
 	runtimev1alpha1 "cosmossdk.io/api/cosmos/app/runtime/v1alpha1"
@@ -72,12 +72,32 @@ func (a *App) RegisterModules(modules ...module.AppModule) error {
 		appModule.RegisterInterfaces(a.interfaceRegistry)
 		appModule.RegisterLegacyAminoCodec(a.amino)
 
+		if module, ok := appModule.(module.HasServices); ok {
+			module.RegisterServices(a.configurator)
+		}
 	}
+
+	return nil
+}
+
+// RegisterStores registers the provided store keys.
+// This method should only be used for registering extra stores
+// wiich is necessary for modules that not registered using the app config.
+// To be used in combination of RegisterModules.
+func (a *App) RegisterStores(keys ...storetypes.StoreKey) error {
+	a.storeKeys = append(a.storeKeys, keys...)
+	a.MountStores(keys...)
+
 	return nil
 }
 
 // Load finishes all initialization operations and loads the app.
 func (a *App) Load(loadLatest bool) error {
+	// register runtime module services
+	if err := a.registerRuntimeServices(); err != nil {
+		return err
+	}
+
 	if len(a.config.InitGenesis) != 0 {
 		a.ModuleManager.SetOrderInitGenesis(a.config.InitGenesis...)
 		if a.initChainer == nil {

@@ -3,7 +3,7 @@ package keeper
 import (
 	"encoding/json"
 
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/cometbft/cometbft/abci/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/types"
@@ -44,7 +44,7 @@ func (k Keeper) InitGenesis(ctx types.Context, cdc codec.JSONCodec, data json.Ra
 }
 
 // ExportGenesis returns the group module's exported genesis.
-func (k Keeper) ExportGenesis(ctx types.Context, cdc codec.JSONCodec) *group.GenesisState {
+func (k Keeper) ExportGenesis(ctx types.Context, _ codec.JSONCodec) *group.GenesisState {
 	genesisState := group.NewGenesisState()
 
 	var groups []*group.GroupInfo

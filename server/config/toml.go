@@ -18,7 +18,7 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 
 # The minimum gas prices a validator is willing to accept for processing a
 # transaction. A transaction's fees must meet the minimum of any denomination
-# specified in this config (e.g. 0.25token1;0.0001token2).
+# specified in this config (e.g. 0.25token1,0.0001token2).
 minimum-gas-prices = "{{ .BaseConfig.MinGasPrices }}"
 
 # default: the last 362880 states are kept, pruning at 10 block intervals
@@ -77,10 +77,13 @@ iavl-cache-size = {{ .BaseConfig.IAVLCacheSize }}
 # Default is false.
 iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
 
+# IAVLLazyLoading enable/disable the lazy loading of iavl store.
+# Default is false.
+iavl-lazy-loading = {{ .BaseConfig.IAVLLazyLoading }}
+
 # AppDBBackend defines the database backend type to use for the application and snapshots DBs.
 # An empty string indicates that a fallback will be used.
-# First fallback is the deprecated compile-time types.DBBackend value.
-# Second fallback (if the types.DBBackend also isn't set), is the db-backend value set in Tendermint's config.toml.
+# The fallback is the db_backend value set in Tendermint's config.toml.
 app-db-backend = "{{ .BaseConfig.AppDBBackend }}"
 
 ###############################################################################
@@ -142,11 +145,47 @@ rpc-read-timeout = {{ .API.RPCReadTimeout }}
 # RPCWriteTimeout defines the Tendermint RPC write timeout (in seconds).
 rpc-write-timeout = {{ .API.RPCWriteTimeout }}
 
-# RPCMaxBodyBytes defines the Tendermint maximum response body (in bytes).
+# RPCMaxBodyBytes defines the Tendermint maximum request body (in bytes).
 rpc-max-body-bytes = {{ .API.RPCMaxBodyBytes }}
 
 # EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
 enabled-unsafe-cors = {{ .API.EnableUnsafeCORS }}
+
+###############################################################################
+###                           Rosetta Configuration                         ###
+###############################################################################
+
+[rosetta]
+
+# Enable defines if the Rosetta API server should be enabled.
+enable = {{ .Rosetta.Enable }}
+
+# Address defines the Rosetta API server to listen on.
+address = "{{ .Rosetta.Address }}"
+
+# Network defines the name of the blockchain that will be returned by Rosetta.
+blockchain = "{{ .Rosetta.Blockchain }}"
+
+# Network defines the name of the network that will be returned by Rosetta.
+network = "{{ .Rosetta.Network }}"
+
+# Retries defines the number of retries when connecting to the node before failing.
+retries = {{ .Rosetta.Retries }}
+
+# Offline defines if Rosetta server should run in offline mode.
+offline = {{ .Rosetta.Offline }}
+
+# EnableDefaultSuggestedFee defines if the server should suggest fee by default.
+# If 'construction/medata' is called without gas limit and gas price,
+# suggested fee based on gas-to-suggest and denom-to-suggest will be given.
+enable-fee-suggestion = {{ .Rosetta.EnableFeeSuggestion }}
+
+# GasToSuggest defines gas limit when calculating the fee
+gas-to-suggest = {{ .Rosetta.GasToSuggest }}
+
+# DenomToSuggest defines the defult denom for fee suggestion.
+# Price must be in minimum-gas-prices.
+denom-to-suggest = "{{ .Rosetta.DenomToSuggest }}"
 
 ###############################################################################
 ###                           gRPC Configuration                            ###
@@ -233,7 +272,7 @@ fsync = "{{ .Streamers.File.Fsync }}"
 #
 # Note, this configuration only applies to SDK built-in app-side mempool
 # implementations.
-max-txs = "{{ .Mempool.MaxTxs }}"
+max-txs = {{ .Mempool.MaxTxs }}
 `
 
 var configTemplate *template.Template

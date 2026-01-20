@@ -8,9 +8,7 @@ sidebar_position: 1
 Modules define most of the logic of Cosmos SDK applications. Developers compose modules together using the Cosmos SDK to build their custom application-specific blockchains. This document outlines the basic concepts behind SDK modules and how to approach module management.
 :::
 
-:::note
-
-### Pre-requisite Readings
+:::note Pre-requisite Readings
 
 * [Anatomy of a Cosmos SDK application](../basics/00-app-anatomy.md)
 * [Lifecycle of a Cosmos SDK transaction](../basics/01-tx-lifecycle.md)
@@ -65,7 +63,7 @@ Cosmos SDK modules can be seen as little state-machines within the state-machine
                                                                   |
                                        +--------------------------+
                                        |
-                                       | Return result to the underlying consensus engine (e.g. Tendermint)
+                                       | Return result to the underlying consensus engine (e.g. CometBFT)
                                        | (0=Ok, 1=Err)
                                        v
 ```
@@ -91,4 +89,4 @@ Modules are by convention defined in the `./x/` subfolder (e.g. the `bank` modul
 
 In addition to these components, modules implement the `AppModule` interface in order to be managed by the [`module manager`](./01-module-manager.md).
 
-Please refer to the [structure document](./10-structure.md) to learn about the recommended structure of a module's directory.
+Please refer to the [structure document](./11-structure.md) to learn about the recommended structure of a module's directory.

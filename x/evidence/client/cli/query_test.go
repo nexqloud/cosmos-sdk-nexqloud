@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	abci "github.com/cometbft/cometbft/abci/types"
+	rpcclientmock "github.com/cometbft/cometbft/rpc/client/mock"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	rpcclientmock "github.com/tendermint/tendermint/rpc/client/mock"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -24,6 +24,10 @@ import (
 )
 
 func TestGetQueryCmd(t *testing.T) {
+	cmd := cli.GetQueryCmd()
+	cmd.SetOut(io.Discard)
+	require.NotNil(t, cmd)
+
 	encCfg := testutilmod.MakeTestEncodingConfig(evidence.AppModuleBasic{})
 	kr := keyring.NewInMemory(encCfg.Codec)
 	baseCtx := client.Context{}.
@@ -93,10 +97,6 @@ func TestGetQueryCmd(t *testing.T) {
 
 			clientCtx := tc.ctxGen().WithOutput(&outBuf)
 			ctx := svrcmd.CreateExecuteContext(context.Background())
-
-			cmd := cli.GetQueryCmd()
-			cmd.SetOut(io.Discard)
-			require.NotNil(t, cmd)
 
 			cmd.SetContext(ctx)
 			cmd.SetArgs(tc.args)

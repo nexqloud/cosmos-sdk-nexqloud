@@ -3,9 +3,9 @@ package vesting
 import (
 	"encoding/json"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	"cosmossdk.io/depinject"
 
@@ -129,7 +129,6 @@ func init() {
 	)
 }
 
-//nolint:revive
 type VestingInputs struct {
 	depinject.In
 
@@ -137,7 +136,6 @@ type VestingInputs struct {
 	BankKeeper    types.BankKeeper
 }
 
-//nolint:revive
 type VestingOutputs struct {
 	depinject.Out
 

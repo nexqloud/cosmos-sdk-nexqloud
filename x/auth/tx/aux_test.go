@@ -7,6 +7,7 @@ import (
 
 	"cosmossdk.io/depinject"
 	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/client/tx"
 	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
@@ -195,7 +196,7 @@ func TestBuilderWithAux(t *testing.T) {
 	}, sigs[2])
 }
 
-func makeTipperTxBuilder(t *testing.T) (clienttx.AuxTxBuilder, []byte) {
+func makeTipperTxBuilder(t *testing.T) (tx.AuxTxBuilder, []byte) {
 	tipperBuilder := clienttx.NewAuxTxBuilder()
 	tipperBuilder.SetAddress(tipperAddr.String())
 	tipperBuilder.SetAccountNumber(1)

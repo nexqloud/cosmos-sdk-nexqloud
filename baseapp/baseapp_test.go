@@ -3,34 +3,29 @@ package baseapp_test
 import (
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
-	"cosmossdk.io/depinject"
-
-	"github.com/cosmos/cosmos-sdk/runtime"
-
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/cometbft/cometbft-db"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/log"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	baseapptestutil "github.com/cosmos/cosmos-sdk/baseapp/testutil"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/store/metrics"
+	"github.com/cosmos/cosmos-sdk/snapshots"
+	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	pruningtypes "github.com/cosmos/cosmos-sdk/store/pruning/types"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	"github.com/cosmos/cosmos-sdk/store/snapshots"
-	snapshottypes "github.com/cosmos/cosmos-sdk/store/snapshots/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/cosmos/cosmos-sdk/types/mempool"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 )
 
@@ -163,6 +158,41 @@ func NewBaseAppSuiteWithSnapshots(t *testing.T, cfg SnapshotsConfig, opts ...fun
 	return suite
 }
 
+func TestAnteHandlerGasMeter(t *testing.T) {
+	// run BeginBlock and assert that the gas meter passed into the first Txn's AnteHandlers is zeroed out
+	anteOpt := func(bapp *baseapp.BaseApp) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+			gasMeter := ctx.BlockGasMeter()
+			require.NotNil(t, gasMeter)
+			require.Equal(t, sdk.Gas(0), gasMeter.GasConsumed())
+			return ctx, nil
+		})
+	}
+	// set the beginBlocker to use some gas
+	beginBlockerOpt := func(bapp *baseapp.BaseApp) {
+		bapp.SetBeginBlocker(func(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
+			ctx.BlockGasMeter().ConsumeGas(1, "beginBlocker gas consumption")
+			return abci.ResponseBeginBlock{}
+		})
+	}
+
+	suite := NewBaseAppSuite(t, anteOpt, beginBlockerOpt)
+
+	_ = suite.baseApp.InitChain(abci.RequestInitChain{
+		ConsensusParams: &tmproto.ConsensusParams{},
+	})
+
+	// Run BeginBlock to consume some gas
+	header := tmproto.Header{Height: 1}
+	suite.baseApp.BeginBlock(abci.RequestBeginBlock{Header: header})
+
+	// Run our first Tx (make sure the AnteHandler doesn't see gas consumed in BeginBlock
+	tx := newTxCounter(t, suite.txConfig, 0, 0)
+	txBytes, err := suite.txConfig.TxEncoder()(tx)
+	require.NoError(t, err)
+	suite.baseApp.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+}
+
 func TestLoadVersion(t *testing.T) {
 	logger := defaultLogger()
 	pruningOpt := baseapp.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
@@ -223,7 +253,7 @@ func TestSetLoader(t *testing.T) {
 	}
 
 	initStore := func(t *testing.T, db dbm.DB, storeKey string, k, v []byte) {
-		rs := rootmulti.NewStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
+		rs := rootmulti.NewStore(db, log.NewNopLogger())
 		rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
 
 		key := sdk.NewKVStoreKey(storeKey)
@@ -243,7 +273,7 @@ func TestSetLoader(t *testing.T) {
 	}
 
 	checkStore := func(t *testing.T, db dbm.DB, ver int64, storeKey string, k, v []byte) {
-		rs := rootmulti.NewStore(db, log.NewNopLogger(), metrics.NewNoOpMetrics())
+		rs := rootmulti.NewStore(db, log.NewNopLogger())
 		rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningDefault))
 
 		key := sdk.NewKVStoreKey(storeKey)
@@ -661,166 +691,90 @@ func TestLoadVersionPruning(t *testing.T) {
 	testLoadVersionHelper(t, app, int64(7), lastCommitID)
 }
 
-func TestBaseAppPostHandler(t *testing.T) {
-	testCases := []struct {
-		name     string
-		testFunc func()
+func TestDefaultProposalHandler_NoOpMempoolTxSelection(t *testing.T) {
+	// create a codec for marshaling
+	cdc := codec.NewProtoCodec(codectypes.NewInterfaceRegistry())
+	baseapptestutil.RegisterInterfaces(cdc.InterfaceRegistry())
+
+	// create a baseapp along with a tx config for tx generation
+	txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
+	app := baseapp.NewBaseApp(t.Name(), log.NewNopLogger(), dbm.NewMemDB(), txConfig.TxDecoder())
+
+	// create a proposal handler
+	ph := baseapp.NewDefaultProposalHandler(mempool.NoOpMempool{}, app)
+	handler := ph.PrepareProposalHandler()
+
+	// build a tx
+	builder := txConfig.NewTxBuilder()
+	require.NoError(t, builder.SetMsgs(
+		&baseapptestutil.MsgCounter{Counter: 0, FailOnHandler: false},
+	))
+	builder.SetGasLimit(100)
+	setTxSignature(t, builder, 0)
+
+	// encode the tx to be used in the proposal request
+	tx := builder.GetTx()
+	txBz, err := txConfig.TxEncoder()(tx)
+	require.NoError(t, err)
+	require.Len(t, txBz, 103)
+
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil).
+		WithConsensusParams(&tmproto.ConsensusParams{})
+
+	testCases := map[string]struct {
+		ctx         sdk.Context
+		req         abci.RequestPrepareProposal
+		expectedTxs int
 	}{
-		{
-			"success case 1 - The msg errors and the PostHandler is not set",
-			func() {
-				// Setup baseapp.
-				var (
-					appBuilder *runtime.AppBuilder
-					cdc        codec.ProtoCodecMarshaler
-				)
-				err := depinject.Inject(makeMinimalConfig(), &appBuilder, &cdc)
-				require.NoError(t, err)
-
-				testCtx := testutil.DefaultContextWithDB(t, capKey1, sdk.NewTransientStoreKey("transient_test"))
-
-				app := appBuilder.Build(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), testCtx.DB, nil)
-				app.SetCMS(testCtx.CMS)
-				baseapptestutil.RegisterInterfaces(cdc.InterfaceRegistry())
-
-				// patch in TxConfig instead of using an output from x/auth/tx
-				txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
-				// set the TxDecoder in the BaseApp for minimal tx simulations
-				app.SetTxDecoder(txConfig.TxDecoder())
-
-				app.InitChain(abci.RequestInitChain{})
-
-				deliverKey := []byte("deliver-key")
-				baseapptestutil.RegisterCounterServer(app.MsgServiceRouter(), CounterServerImpl{t, capKey1, deliverKey})
-
-				header := tmproto.Header{Height: int64(1)}
-				app.BeginBlock(abci.RequestBeginBlock{Header: header})
-
-				tx := newTxCounter(t, txConfig, 1, 0)
-				tx = setFailOnHandler(txConfig, tx, true)
-				txBytes, err := txConfig.TxEncoder()(tx)
-				require.NoError(t, err)
-
-				r := app.CheckTx(abci.RequestCheckTx{Tx: txBytes})
-				require.True(t, r.IsOK(), fmt.Sprintf("%v", r))
-
-				res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
-				require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
-
-				events := res.GetEvents()
-				require.Len(t, events, 0, "Should not contain any events as the post handler is not set")
-
-				app.EndBlock(abci.RequestEndBlock{})
-				app.Commit()
+		"small max tx bytes": {
+			ctx: ctx,
+			req: abci.RequestPrepareProposal{
+				Txs:        [][]byte{txBz, txBz, txBz, txBz, txBz},
+				MaxTxBytes: 10,
 			},
+			expectedTxs: 0,
 		},
-		{
-			"success case 2 - The msg errors and the PostHandler is set",
-			func() {
-				postKey := []byte("post-key")
-				anteKey := []byte("ante-key")
-				// Setup baseapp.
-				var (
-					appBuilder *runtime.AppBuilder
-					cdc        codec.ProtoCodecMarshaler
-				)
-				err := depinject.Inject(makeMinimalConfig(), &appBuilder, &cdc)
-				require.NoError(t, err)
-
-				testCtx := testutil.DefaultContextWithDB(t, capKey1, sdk.NewTransientStoreKey("transient_test"))
-
-				app := appBuilder.Build(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), testCtx.DB, nil)
-				app.SetCMS(testCtx.CMS)
-				baseapptestutil.RegisterInterfaces(cdc.InterfaceRegistry())
-
-				// patch in TxConfig instead of using an output from x/auth/tx
-				txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
-				// set the TxDecoder in the BaseApp for minimal tx simulations
-				app.SetTxDecoder(txConfig.TxDecoder())
-
-				app.InitChain(abci.RequestInitChain{})
-
-				deliverKey := []byte("deliver-key")
-				baseapptestutil.RegisterCounterServer(app.MsgServiceRouter(), CounterServerImpl{t, capKey1, deliverKey})
-
-				app.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey))
-				app.SetPostHandler(postHandlerTxTest(t, capKey1, postKey))
-				header := tmproto.Header{Height: int64(1)}
-				app.BeginBlock(abci.RequestBeginBlock{Header: header})
-
-				tx := newTxCounter(t, txConfig, 0, 0)
-				tx = setFailOnHandler(txConfig, tx, true)
-				txBytes, err := txConfig.TxEncoder()(tx)
-				require.NoError(t, err)
-
-				r := app.CheckTx(abci.RequestCheckTx{Tx: txBytes})
-				require.True(t, r.IsOK(), fmt.Sprintf("%v", r))
-
-				res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
-				require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
-
-				events := res.GetEvents()
-				require.Len(t, events, 3, "Contains the AnteHandler and the PostHandler")
-
-				app.EndBlock(abci.RequestEndBlock{})
-				app.Commit()
+		"small max gas": {
+			ctx: ctx.WithConsensusParams(&tmproto.ConsensusParams{
+				Block: &tmproto.BlockParams{
+					MaxGas: 10,
+				},
+			}),
+			req: abci.RequestPrepareProposal{
+				Txs:        [][]byte{txBz, txBz, txBz, txBz, txBz},
+				MaxTxBytes: 309,
 			},
+			expectedTxs: 3,
 		},
-		{
-			"success case 3 - Run Post Handler with runMsgCtx so that the state from runMsgs is persisted",
-			func() {
-				postKey := []byte("post-key")
-				// Setup baseapp.
-				var (
-					appBuilder *runtime.AppBuilder
-					cdc        codec.ProtoCodecMarshaler
-				)
-				err := depinject.Inject(makeMinimalConfig(), &appBuilder, &cdc)
-				require.NoError(t, err)
-
-				testCtx := testutil.DefaultContextWithDB(t, capKey1, sdk.NewTransientStoreKey("transient_test"))
-
-				app := appBuilder.Build(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), testCtx.DB, nil)
-				app.SetCMS(testCtx.CMS)
-				baseapptestutil.RegisterInterfaces(cdc.InterfaceRegistry())
-
-				// patch in TxConfig instead of using an output from x/auth/tx
-				txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
-				// set the TxDecoder in the BaseApp for minimal tx simulations
-				app.SetTxDecoder(txConfig.TxDecoder())
-
-				app.InitChain(abci.RequestInitChain{})
-
-				deliverKey := []byte("deliver-key")
-				baseapptestutil.RegisterCounterServer(app.MsgServiceRouter(), CounterServerImpl{t, capKey1, deliverKey})
-
-				app.SetPostHandler(postHandlerTxTest(t, capKey1, postKey))
-				header := tmproto.Header{Height: int64(1)}
-				app.BeginBlock(abci.RequestBeginBlock{Header: header})
-
-				tx := newTxCounter(t, txConfig, 0, 0)
-				txBytes, err := txConfig.TxEncoder()(tx)
-				require.NoError(t, err)
-
-				r := app.CheckTx(abci.RequestCheckTx{Tx: txBytes})
-				require.True(t, r.IsOK(), fmt.Sprintf("%v", r))
-
-				res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
-				require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
-
-				events := res.GetEvents()
-				require.Len(t, events, 3, "should contain ante handler, message type and counter events respectively")
-
-				require.NoError(t, err)
-				app.EndBlock(abci.RequestEndBlock{})
-				app.Commit()
+		"large max tx bytes": {
+			ctx: ctx,
+			req: abci.RequestPrepareProposal{
+				Txs:        [][]byte{txBz, txBz, txBz, txBz, txBz},
+				MaxTxBytes: 309,
 			},
+			expectedTxs: 3,
+		},
+		"max gas and tx bytes": {
+			ctx: ctx.WithConsensusParams(&tmproto.ConsensusParams{
+				Block: &tmproto.BlockParams{
+					MaxGas: 200,
+				},
+			}),
+			req: abci.RequestPrepareProposal{
+				Txs:        [][]byte{txBz, txBz, txBz, txBz, txBz},
+				MaxTxBytes: 309,
+			},
+			expectedTxs: 3,
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			tc.testFunc()
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// iterate multiple times to ensure the tx selector is cleared each time
+			for i := 0; i < 5; i++ {
+				resp := handler(tc.ctx, tc.req)
+				require.Len(t, resp.Txs, tc.expectedTxs)
+			}
 		})
 	}
 }

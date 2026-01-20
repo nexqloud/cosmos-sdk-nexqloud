@@ -10,6 +10,7 @@ import (
 
 	"github.com/99designs/keyring"
 	"github.com/cosmos/go-bip39"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -21,6 +22,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/crypto/types"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -159,9 +161,8 @@ func TestKeyManagementKeyRing(t *testing.T) {
 	newPath := filepath.Join(tempDir, "random")
 	require.NoError(t, os.Mkdir(newPath, 0o755))
 	items, err := os.ReadDir(tempDir)
-	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(items), 2)
-	_, err = kb.List()
+	keyS, err = kb.List()
 	require.NoError(t, err)
 
 	// addr cache gets nuked - and test skip flag
@@ -457,15 +458,14 @@ func TestInMemoryLanguage(t *testing.T) {
 }
 
 func TestInMemoryWithKeyring(t *testing.T) {
-	priv := types.PrivKey(secp256k1.GenPrivKey())
+	priv := cryptotypes.PrivKey(secp256k1.GenPrivKey())
 	pub := priv.PubKey()
 
 	cdc := getCodec()
 	_, err := NewLocalRecord("test record", priv, pub)
-	require.NoError(t, err)
 
 	multi := multisig.NewLegacyAminoPubKey(
-		1, []types.PubKey{
+		1, []cryptotypes.PubKey{
 			pub,
 		},
 	)
@@ -1407,7 +1407,7 @@ func TestRenameKey(t *testing.T) {
 				newRecord, err := kr.Key(newKeyUID) // new key should be in keyring
 				require.NoError(t, err)
 				requireEqualRenamedKey(t, newRecord, oldKeyRecord, false) // oldKeyRecord and newRecord should be the same except name
-				_, err = kr.Key(oldKeyUID)                                // old key should be gone from keyring
+				oldKeyRecord, err = kr.Key(oldKeyUID)                     // old key should be gone from keyring
 				require.Error(t, err)
 			},
 		},
@@ -1446,6 +1446,64 @@ func TestRenameKey(t *testing.T) {
 		kr := newKeyring(t, "testKeyring")
 		t.Run(tc.name, func(t *testing.T) {
 			tc.run(kr)
+		})
+	}
+}
+
+func TestImportPrivKeyHex(t *testing.T) {
+	cdc := getCodec()
+	tests := []struct {
+		name        string
+		uid         string
+		backend     string
+		hexKey      string
+		algo        string
+		expectedErr error
+	}{
+		{
+			name:        "correct import",
+			uid:         "hexImport",
+			backend:     BackendTest,
+			hexKey:      "0xa3e57952e835ed30eea86a2993ac2a61c03e74f2085b3635bd94aa4d7ae0cfdf",
+			algo:        "secp256k1",
+			expectedErr: nil,
+		},
+		{
+			name:        "correct import without prefix",
+			uid:         "hexImport",
+			backend:     BackendTest,
+			hexKey:      "a3e57952e835ed30eea86a2993ac2a61c03e74f2085b3635bd94aa4d7ae0cfdf",
+			algo:        "secp256k1",
+			expectedErr: nil,
+		},
+		{
+			name:        "wrong hex length",
+			uid:         "hexImport",
+			backend:     BackendTest,
+			hexKey:      "0xae57952e835ed30eea86a2993ac2a61c03e74f2085b3635bd94aa4d7ae0cfdf",
+			algo:        "secp256k1",
+			expectedErr: hex.ErrLength,
+		},
+		{
+			name:        "unsupported algo",
+			uid:         "hexImport",
+			backend:     BackendTest,
+			hexKey:      "0xa3e57952e835ed30eea86a2993ac2a61c03e74f2085b3635bd94aa4d7ae0cfdf",
+			algo:        "notSupportedAlgo",
+			expectedErr: errors.New("provided algorithm \"notSupportedAlgo\" is not supported"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kb, err := New("TestExport", tt.backend, t.TempDir(), nil, cdc)
+			require.NoError(t, err)
+			err = kb.ImportPrivKeyHex(tt.uid, tt.hexKey, tt.algo)
+			if tt.expectedErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.ErrorContains(t, err, tt.expectedErr.Error())
+			}
 		})
 	}
 }

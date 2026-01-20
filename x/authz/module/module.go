@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	modulev1 "cosmossdk.io/api/cosmos/authz/module/v1"
 	"cosmossdk.io/core/appmodule"
@@ -113,7 +113,7 @@ type AppModule struct {
 func NewAppModule(cdc codec.Codec, keeper keeper.Keeper, ak authz.AccountKeeper, bk authz.BankKeeper, registry cdctypes.InterfaceRegistry) AppModule {
 	return AppModule{
 		AppModuleBasic: AppModuleBasic{cdc: cdc},
-		keeper:         keeper,
+		keeper:         keeper.SetBankKeeper(bk), // Super ugly hack to not be api breaking in v0.50 and v0.47,
 		accountKeeper:  ak,
 		bankKeeper:     bk,
 		registry:       registry,
@@ -171,7 +171,6 @@ func init() {
 	)
 }
 
-//nolint:revive
 type AuthzInputs struct {
 	depinject.In
 
@@ -183,7 +182,6 @@ type AuthzInputs struct {
 	MsgServiceRouter *baseapp.MsgServiceRouter
 }
 
-//nolint:revive
 type AuthzOutputs struct {
 	depinject.Out
 
@@ -194,7 +192,7 @@ type AuthzOutputs struct {
 func ProvideModule(in AuthzInputs) AuthzOutputs {
 	k := keeper.NewKeeper(in.Key, in.Cdc, in.MsgServiceRouter, in.AccountKeeper)
 	m := NewAppModule(in.Cdc, k, in.AccountKeeper, in.BankKeeper, in.Registry)
-	return AuthzOutputs{AuthzKeeper: k, Module: m}
+	return AuthzOutputs{AuthzKeeper: k.SetBankKeeper(in.BankKeeper) /* depinject ux improvement */, Module: m}
 }
 
 // ____________________________________________________________________________
@@ -204,12 +202,6 @@ func ProvideModule(in AuthzInputs) AuthzOutputs {
 // GenerateGenesisState creates a randomized GenState of the authz module.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	simulation.RandomizedGenState(simState)
-}
-
-// ProposalContents returns all the authz content functions used to
-// simulate governance proposals.
-func (am AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
-	return nil
 }
 
 // RegisterStoreDecoder registers a decoder for authz module's types

@@ -6,34 +6,22 @@ import (
 	"sort"
 	"strings"
 
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/cometbft/cometbft-db"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/crypto/tmhash"
+	"github.com/cometbft/cometbft/libs/log"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cosmos/gogoproto/proto"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"golang.org/x/exp/maps"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
-	storemetrics "github.com/cosmos/cosmos-sdk/store/metrics"
-	"github.com/cosmos/cosmos-sdk/store/snapshots"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/mempool"
 )
-
-const (
-	runTxModeCheck    runTxMode = iota // Check a transaction
-	runTxModeReCheck                   // Recheck a (pending) transaction after a commit
-	runTxModeSimulate                  // Simulate a transaction
-	runTxModeDeliver                   // Deliver a transaction
-	runTxPrepareProposal
-	runTxProcessProposal
-)
-
-var _ abci.Application = (*BaseApp)(nil)
 
 type (
 	// Enum mode for app.runTx
@@ -43,8 +31,19 @@ type (
 	// from disk. This is useful for state migration, when loading a datastore written with
 	// an older version of the software. In particular, if a module changed the substore key name
 	// (or removed a substore) between two versions of the software.
-	StoreLoader func(ms sdk.CommitMultiStore) error
+	StoreLoader func(ms storetypes.CommitMultiStore) error
 )
+
+const (
+	runTxModeCheck       runTxMode = iota // Check a transaction
+	runTxModeReCheck                      // Recheck a (pending) transaction after a commit
+	runTxModeSimulate                     // Simulate a transaction
+	runTxModeDeliver                      // Deliver a transaction
+	runTxPrepareProposal                  // Prepare a TM block proposal
+	runTxProcessProposal                  // Process a TM block proposal
+)
+
+var _ abci.Application = (*BaseApp)(nil)
 
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct { //nolint: maligned
@@ -142,7 +141,9 @@ type BaseApp struct { //nolint: maligned
 
 	// abciListeners for hooking into the ABCI message processing of the BaseApp
 	// and exposing the requests and responses to external consumers
-	abciListeners []storetypes.ABCIListener
+	abciListeners []ABCIListener
+
+	chainID string
 }
 
 // NewBaseApp returns a reference to an initialized BaseApp. It accepts a
@@ -157,7 +158,7 @@ func NewBaseApp(
 		logger:           logger,
 		name:             name,
 		db:               db,
-		cms:              store.NewCommitMultiStore(db, logger, storemetrics.NewNoOpMetrics()), // by default we use a no-op metric gather in store
+		cms:              store.NewCommitMultiStore(db),
 		storeLoader:      DefaultStoreLoader,
 		grpcQueryRouter:  NewGRPCQueryRouter(),
 		msgServiceRouter: NewMsgServiceRouter(),
@@ -173,12 +174,14 @@ func NewBaseApp(
 		app.SetMempool(mempool.NoOpMempool{})
 	}
 
-	if app.processProposal == nil {
-		app.SetProcessProposal(app.DefaultProcessProposal())
-	}
+	abciProposalHandler := NewDefaultProposalHandler(app.mempool, app)
 
 	if app.prepareProposal == nil {
-		app.SetPrepareProposal(app.DefaultPrepareProposal())
+		app.SetPrepareProposal(abciProposalHandler.PrepareProposalHandler())
+	}
+
+	if app.processProposal == nil {
+		app.SetProcessProposal(abciProposalHandler.ProcessProposalHandler())
 	}
 
 	if app.interBlockCache != nil {
@@ -221,6 +224,15 @@ func (app *BaseApp) MsgServiceRouter() *MsgServiceRouter { return app.msgService
 // SetMsgServiceRouter sets the MsgServiceRouter of a BaseApp.
 func (app *BaseApp) SetMsgServiceRouter(msgServiceRouter *MsgServiceRouter) {
 	app.msgServiceRouter = msgServiceRouter
+}
+
+// SetCircuitBreaker sets the circuit breaker for the BaseApp.
+// The circuit breaker is checked on every message execution to verify if a transaction should be executed or not.
+func (app *BaseApp) SetCircuitBreaker(cb CircuitBreaker) {
+	if app.msgServiceRouter == nil {
+		panic("must be called after message server is set")
+	}
+	app.msgServiceRouter.SetCircuit(cb)
 }
 
 // MountStores mounts all IAVL or DB stores to the provided keys in the BaseApp
@@ -339,6 +351,11 @@ func (app *BaseApp) LastBlockHeight() int64 {
 	return app.cms.LastCommitID().Version
 }
 
+// Mempool returns the Mempool of the app.
+func (app *BaseApp) Mempool() mempool.Mempool {
+	return app.mempool
+}
+
 // Init initializes the app. It seals the app, preventing any
 // further modifications. In addition, it validates the app against
 // the earlier provided settings. Returns an error if validation fails.
@@ -348,14 +365,10 @@ func (app *BaseApp) Init() error {
 		panic("cannot call initFromMainStore: baseapp already sealed")
 	}
 
-	emptyHeader := tmproto.Header{}
+	emptyHeader := tmproto.Header{ChainID: app.chainID}
 
 	// needed for the export command which inits from store but never calls initchain
 	app.setState(runTxModeCheck, emptyHeader)
-
-	// needed for ABCI Replay Blocks mode which calls Prepare/Process proposal (InitChain is not called)
-	app.setState(runTxPrepareProposal, emptyHeader)
-	app.setState(runTxProcessProposal, emptyHeader)
 	app.Seal()
 
 	if app.cms == nil {
@@ -497,19 +510,21 @@ func (app *BaseApp) validateHeight(req abci.RequestBeginBlock) error {
 		return fmt.Errorf("invalid height: %d", req.Header.Height)
 	}
 
-	// expectedHeight holds the expected height to validate.
+	lastBlockHeight := app.LastBlockHeight()
+
+	// expectedHeight holds the expected height to validate
 	var expectedHeight int64
-	if app.LastBlockHeight() == 0 && app.initialHeight > 1 {
-		// In this case, we're validating the first block of the chain (no
-		// previous commit). The height we're expecting is the initial height.
+	if lastBlockHeight == 0 && app.initialHeight > 1 {
+		// In this case, we're validating the first block of the chain, i.e no
+		// previous commit. The height we're expecting is the initial height.
 		expectedHeight = app.initialHeight
 	} else {
 		// This case can mean two things:
-		// - either there was already a previous commit in the store, in which
-		// case we increment the version from there,
-		// - or there was no previous commit, and initial version was not set,
-		// in which case we start at version 1.
-		expectedHeight = app.LastBlockHeight() + 1
+		//
+		// - Either there was already a previous commit in the store, in which
+		// case we increment the version from there.
+		// - Or there was no previous commit, in which case we start at version 1.
+		expectedHeight = lastBlockHeight + 1
 	}
 
 	if req.Header.Height != expectedHeight {
@@ -542,13 +557,24 @@ func (app *BaseApp) getState(mode runTxMode) *state {
 	switch mode {
 	case runTxModeDeliver:
 		return app.deliverState
+
 	case runTxPrepareProposal:
 		return app.prepareProposalState
+
 	case runTxProcessProposal:
 		return app.processProposalState
+
 	default:
 		return app.checkState
 	}
+}
+
+func (app *BaseApp) getBlockGasMeter(ctx sdk.Context) storetypes.GasMeter {
+	if maxGas := app.GetMaximumBlockGas(ctx); maxGas > 0 {
+		return storetypes.NewGasMeter(maxGas)
+	}
+
+	return storetypes.NewInfiniteGasMeter()
 }
 
 // retrieve the context for the tx w/ txBytes and other memoized values.
@@ -600,16 +626,11 @@ func (app *BaseApp) cacheTxContext(ctx sdk.Context, txBytes []byte) (sdk.Context
 // Note, gas execution info is always returned. A reference to a Result is
 // returned if the tx does not run out of gas and if all the messages are valid
 // and execute successfully. An error is returned otherwise.
-func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, events []abci.Event, priority int64, err error) {
+func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
 	// determined by the GasMeter. We need access to the context to get the gas
 	// meter, so we initialize upfront.
 	var gasWanted uint64
-
-	var (
-		anteEvents []abci.Event
-		postEvents []abci.Event
-	)
 
 	ctx := app.getContextForTx(mode, txBytes)
 	ms := ctx.MultiStore()
@@ -623,14 +644,17 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			err, result = processRecovery(r, recoveryMW), nil
+			ctx.Logger().Error("panic recovered in runTx", "err", err)
 		}
 
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed()}
 	}()
 
 	blockGasConsumed := false
-	// consumeBlockGas makes sure block gas is consumed at most once. It must happen after
-	// tx processing, and must be executed even if tx processing fails. Hence, we use trick with `defer`
+
+	// consumeBlockGas makes sure block gas is consumed at most once. It must
+	// happen after tx processing, and must be executed even if tx processing
+	// fails. Hence, it's execution is deferred.
 	consumeBlockGas := func() {
 		if !blockGasConsumed {
 			blockGasConsumed = true
@@ -643,8 +667,9 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 	// If BlockGasMeter() panics it will be caught by the above recover and will
 	// return an error - in any case BlockGasMeter will consume gas past the limit.
 	//
-	// NOTE: This must exist in a separate defer function for the above recovery
-	// to recover from this one.
+	// NOTE: consumeBlockGas must exist in a separate defer function from the
+	// general deferred recovery function to recover from consumeBlockGas as it'll
+	// be executed first (deferred statements are executed as stack).
 	if mode == runTxModeDeliver {
 		defer consumeBlockGas()
 	}
@@ -692,27 +717,31 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 		gasWanted = ctx.GasMeter().Limit()
 
 		if err != nil {
+			if mode == runTxModeReCheck {
+				// if the ante handler fails on recheck, we want to remove the tx from the mempool
+				if mempoolErr := app.mempool.Remove(tx); mempoolErr != nil {
+					return gInfo, nil, anteEvents, 0, fmt.Errorf("error: %v, mempool error: %w", err, mempoolErr)
+				}
+			}
 			return gInfo, nil, nil, 0, err
 		}
 
 		priority = ctx.Priority()
-		anteEvents = events.ToABCIEvents()
 		msCache.Write()
+		anteEvents = events.ToABCIEvents()
 	}
 
-	// insert or remove the transaction from the mempool
-	switch mode {
-	case runTxModeCheck:
+	if mode == runTxModeCheck {
 		err = app.mempool.Insert(ctx, tx)
-	case runTxModeDeliver:
+		if err != nil {
+			return gInfo, nil, anteEvents, priority, err
+		}
+	} else if mode == runTxModeDeliver {
 		err = app.mempool.Remove(tx)
 		if err != nil && !errors.Is(err, mempool.ErrTxNotFound) {
-			err = fmt.Errorf("failed to remove tx from mempool: %w", err)
+			return gInfo, nil, anteEvents, priority,
+				fmt.Errorf("failed to remove tx from mempool: %w", err)
 		}
-	}
-
-	if err != nil {
-		return gInfo, nil, events, priority, err
 	}
 
 	// Create a new Context based off of the existing Context with a MultiStore branch
@@ -724,86 +753,38 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 	// and we're in DeliverTx. Note, runMsgs will never return a reference to a
 	// Result if any single message fails or does not have a registered Handler.
 	result, err = app.runMsgs(runMsgCtx, msgs, mode)
+	if err == nil {
+		// Run optional postHandlers.
+		//
+		// Note: If the postHandler fails, we also revert the runMsgs state.
+		if app.postHandler != nil {
+			// The runMsgCtx context currently contains events emitted by the ante handler.
+			// We clear this to correctly order events without duplicates.
+			// Note that the state is still preserved.
+			postCtx := runMsgCtx.WithEventManager(sdk.NewEventManager())
 
-	// Case 1: the msg errors and the post handler is not set.
-	if err != nil && app.postHandler == nil {
-		return gInfo, nil, anteEvents, priority, err
-	}
+			newCtx, err := app.postHandler(postCtx, tx, mode == runTxModeSimulate, err == nil)
+			if err != nil {
+				return gInfo, nil, anteEvents, priority, err
+			}
 
-	// Case 2: tx errors and the post handler is set. Run PostHandler and revert state from runMsgs
-	if err != nil && app.postHandler != nil {
-		// Run optional postHandlers with a context branched off the ante handler ctx
-		postCtx, postCache := app.cacheTxContext(ctx, txBytes)
-
-		newCtx, err := app.postHandler(postCtx, tx, mode == runTxModeSimulate, err == nil)
-		if err != nil {
-			// return result in case the pointer has been modified by the post decorators
-			return gInfo, result, events, priority, err
+			result.Events = append(result.Events, newCtx.EventManager().ABCIEvents()...)
 		}
 
 		if mode == runTxModeDeliver {
 			// When block gas exceeds, it'll panic and won't commit the cached store.
 			consumeBlockGas()
 
-			postCache.Write()
+			msCache.Write()
 		}
 
 		if len(anteEvents) > 0 && (mode == runTxModeDeliver || mode == runTxModeSimulate) {
 			// append the events in the order of occurrence
-			postEvents = newCtx.EventManager().ABCIEvents()
-			events = make([]abci.Event, len(anteEvents)+len(postEvents))
-			copy(events[:len(anteEvents)], anteEvents)
-			copy(events[len(anteEvents):], postEvents)
-			result.Events = append(result.Events, events...)
-		} else {
-			events = make([]abci.Event, len(postEvents))
-			copy(events, postEvents)
-			result.Events = append(result.Events, postEvents...)
-		}
-
-		return gInfo, result, events, priority, err
-	}
-
-	// Case 3: tx successful and post handler is set. Run Post Handler with runMsgCtx so that the state from runMsgs is persisted
-	if app.postHandler != nil {
-		newCtx, err := app.postHandler(runMsgCtx, tx, mode == runTxModeSimulate, err == nil)
-		if err != nil {
-			return gInfo, nil, nil, priority, err
-		}
-
-		postEvents = newCtx.EventManager().Events().ToABCIEvents()
-		result.Events = append(result.Events, postEvents...)
-
-		if len(anteEvents) > 0 {
-			events = make([]abci.Event, len(anteEvents)+len(postEvents))
-			copy(events[:len(anteEvents)], anteEvents)
-			copy(events[len(anteEvents):], postEvents)
-		} else {
-			events = make([]abci.Event, len(postEvents))
-			copy(events, postEvents)
+			result.Events = append(anteEvents, result.Events...)
 		}
 	}
 
-	// Case 4: tx successful and post handler is not set.
-
-	if mode == runTxModeDeliver {
-		// When block gas exceeds, it'll panic and won't commit the cached store.
-		consumeBlockGas()
-
-		msCache.Write()
-	}
-
-	if len(anteEvents) > 0 && (mode == runTxModeDeliver || mode == runTxModeSimulate) {
-		// append the events in the order of occurrence:
-		// 	1. AnteHandler events
-		// 	2. Transaction Result events
-		// 	3. PostHandler events
-		result.Events = append(anteEvents, result.Events...)
-
-		copy(events, result.Events)
-	}
-
-	return gInfo, result, events, priority, err
+	return gInfo, result, anteEvents, priority, err
 }
 
 // runMsgs iterates through a list of messages and executes them with the provided
@@ -818,7 +799,6 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 	// NOTE: GasWanted is determined by the AnteHandler and GasUsed by the GasMeter.
 	for i, msg := range msgs {
-
 		if mode != runTxModeDeliver && mode != runTxModeSimulate {
 			break
 		}
@@ -899,114 +879,50 @@ func createEvents(events sdk.Events, msg sdk.Msg) sdk.Events {
 	return sdk.Events{msgEvent}.AppendEvents(events)
 }
 
-// DefaultPrepareProposal returns the default implementation for processing an
-// ABCI proposal. The application's mempool is enumerated and all valid
-// transactions are added to the proposal. Transactions are valid if they:
-//
-// 1) Successfully encode to bytes.
-// 2) Are valid (i.e. pass runTx, AnteHandler only).
-//
-// Enumeration is halted once RequestPrepareProposal.MaxBytes of transactions is
-// reached or the mempool is exhausted.
-//
-// Note:
-//
-// - Step (2) is identical to the validation step performed in
-// DefaultProcessProposal. It is very important that the same validation logic
-// is used in both steps, and applications must ensure that this is the case in
-// non-default handlers.
-//
-// - If no mempool is set or if the mempool is a no-op mempool, the transactions
-// requested from Tendermint will simply be returned, which, by default, are in
-// FIFO order.
-func (app *BaseApp) DefaultPrepareProposal() sdk.PrepareProposalHandler {
-	return func(ctx sdk.Context, req abci.RequestPrepareProposal) abci.ResponsePrepareProposal {
-		// If the mempool is nil or a no-op mempool, we simply return the transactions
-		// requested from Tendermint, which, by default, should be in FIFO order.
-		_, isNoOp := app.mempool.(mempool.NoOpMempool)
-		if app.mempool == nil || isNoOp {
-			return abci.ResponsePrepareProposal{Txs: req.Txs}
-		}
-
-		var (
-			txsBytes  [][]byte
-			byteCount int64
-		)
-
-		iterator := app.mempool.Select(ctx, req.Txs)
-		for iterator != nil {
-			memTx := iterator.Tx()
-
-			bz, err := app.txEncoder(memTx)
-			if err != nil {
-				panic(err)
-			}
-
-			txSize := int64(len(bz))
-
-			// NOTE: Since runTx was already executed in CheckTx, which calls
-			// mempool.Insert, ideally everything in the pool should be valid. But
-			// some mempool implementations may insert invalid txs, so we check again.
-			_, _, _, _, err = app.runTx(runTxPrepareProposal, bz)
-			if err != nil {
-				err := app.mempool.Remove(memTx)
-				if err != nil && !errors.Is(err, mempool.ErrTxNotFound) {
-					panic(err)
-				}
-
-				iterator = iterator.Next()
-				continue
-			} else if byteCount += txSize; byteCount <= req.MaxTxBytes {
-				txsBytes = append(txsBytes, bz)
-			} else {
-				break
-			}
-
-			iterator = iterator.Next()
-		}
-
-		return abci.ResponsePrepareProposal{Txs: txsBytes}
+// PrepareProposalVerifyTx performs transaction verification when a proposer is
+// creating a block proposal during PrepareProposal. Any state committed to the
+// PrepareProposal state internally will be discarded. <nil, err> will be
+// returned if the transaction cannot be encoded. <bz, nil> will be returned if
+// the transaction is valid, otherwise <bz, err> will be returned.
+func (app *BaseApp) PrepareProposalVerifyTx(tx sdk.Tx) ([]byte, error) {
+	bz, err := app.txEncoder(tx)
+	if err != nil {
+		return nil, err
 	}
+
+	_, _, _, _, err = app.runTx(runTxPrepareProposal, bz) //nolint:dogsled
+	if err != nil {
+		return nil, err
+	}
+
+	return bz, nil
 }
 
-// DefaultProcessProposal returns the default implementation for processing an ABCI proposal.
-// Every transaction in the proposal must pass 2 conditions:
-//
-// 1. The transaction bytes must decode to a valid transaction.
-// 2. The transaction must be valid (i.e. pass runTx, AnteHandler only)
-//
-// If any transaction fails to pass either condition, the proposal is rejected.  Note that step (2) is identical to the
-// validation step performed in DefaultPrepareProposal.  It is very important that the same validation logic is used
-// in both steps, and applications must ensure that this is the case in non-default handlers.
-func (app *BaseApp) DefaultProcessProposal() sdk.ProcessProposalHandler {
-	return func(ctx sdk.Context, req abci.RequestProcessProposal) abci.ResponseProcessProposal {
-		for _, txBytes := range req.Txs {
-			_, err := app.txDecoder(txBytes)
-			if err != nil {
-				return abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}
-			}
-
-			_, _, _, _, err = app.runTx(runTxProcessProposal, txBytes)
-			if err != nil {
-				return abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}
-			}
-		}
-		return abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}
+// ProcessProposalVerifyTx performs transaction verification when receiving a
+// block proposal during ProcessProposal. Any state committed to the
+// ProcessProposal state internally will be discarded. <nil, err> will be
+// returned if the transaction cannot be decoded. <Tx, nil> will be returned if
+// the transaction is valid, otherwise <Tx, err> will be returned.
+func (app *BaseApp) ProcessProposalVerifyTx(txBz []byte) (sdk.Tx, error) {
+	tx, err := app.txDecoder(txBz)
+	if err != nil {
+		return nil, err
 	}
+
+	_, _, _, _, err = app.runTx(runTxProcessProposal, txBz) //nolint:dogsled
+	if err != nil {
+		return nil, err
+	}
+
+	return tx, nil
 }
 
-// NoOpPrepareProposal defines a no-op PrepareProposal handler. It will always
-// return the transactions sent by the client's request.
-func NoOpPrepareProposal() sdk.PrepareProposalHandler {
-	return func(_ sdk.Context, req abci.RequestPrepareProposal) abci.ResponsePrepareProposal {
-		return abci.ResponsePrepareProposal{Txs: req.Txs}
-	}
+// Close is called in start cmd to gracefully cleanup resources.
+func (app *BaseApp) Close() error {
+	return nil
 }
 
-// NoOpProcessProposal defines a no-op ProcessProposal Handler. It will always
-// return ACCEPT.
-func NoOpProcessProposal() sdk.ProcessProposalHandler {
-	return func(_ sdk.Context, _ abci.RequestProcessProposal) abci.ResponseProcessProposal {
-		return abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}
-	}
+// ChainID returns the chainID of the BaseApp.
+func (app *BaseApp) ChainID() string {
+	return app.chainID
 }

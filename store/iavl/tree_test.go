@@ -3,7 +3,7 @@ package iavl
 import (
 	"testing"
 
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/cometbft/cometbft-db"
 	"github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 )
@@ -14,8 +14,12 @@ func TestImmutableTreePanics(t *testing.T) {
 	it := &immutableTree{immTree}
 	require.Panics(t, func() { it.Set([]byte{}, []byte{}) })
 	require.Panics(t, func() { it.Remove([]byte{}) })
-	require.Panics(t, func() { it.SaveVersion() })           //nolint:errcheck
-	require.Panics(t, func() { it.DeleteVersion(int64(1)) }) //nolint:errcheck
+	require.Panics(t, func() { it.SaveVersion() })           // nolint:errcheck
+	require.Panics(t, func() { it.DeleteVersion(int64(1)) }) // nolint:errcheck
+
+	val, err := it.GetVersioned(nil, 1)
+	require.Error(t, err)
+	require.Nil(t, val)
 
 	imm, err := it.GetImmutable(1)
 	require.Error(t, err)

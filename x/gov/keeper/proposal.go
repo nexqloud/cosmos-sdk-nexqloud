@@ -84,7 +84,7 @@ func (keeper Keeper) SubmitProposal(ctx sdk.Context, messages []sdk.Msg, metadat
 	submitTime := ctx.BlockHeader().Time
 	depositPeriod := keeper.GetParams(ctx).MaxDepositPeriod
 
-	proposal, err := v1.NewProposal(messages, proposalID, metadata, submitTime, submitTime.Add(*depositPeriod), title, summary, proposer)
+	proposal, err := v1.NewProposal(messages, proposalID, submitTime, submitTime.Add(*depositPeriod), metadata, title, summary, proposer)
 	if err != nil {
 		return v1.Proposal{}, err
 	}
@@ -158,6 +158,7 @@ func (keeper Keeper) DeleteProposal(ctx sdk.Context, proposalID uint64) {
 	}
 	if proposal.VotingEndTime != nil {
 		keeper.RemoveFromActiveProposalQueue(ctx, proposalID, *proposal.VotingEndTime)
+		store.Delete(types.VotingPeriodProposalKey(proposalID))
 	}
 
 	store.Delete(types.ProposalKey(proposalID))

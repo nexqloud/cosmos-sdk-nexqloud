@@ -4,20 +4,22 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/cometbft/cometbft-db"
+	abci "github.com/cometbft/cometbft/abci/types"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cosmos/gogoproto/jsonpb"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	baseapptestutil "github.com/cosmos/cosmos-sdk/baseapp/testutil"
+	"github.com/cosmos/cosmos-sdk/snapshots"
+	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	pruningtypes "github.com/cosmos/cosmos-sdk/store/pruning/types"
-	"github.com/cosmos/cosmos-sdk/store/snapshots"
-	snapshottypes "github.com/cosmos/cosmos-sdk/store/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -43,7 +45,7 @@ func TestABCI_InitChain(t *testing.T) {
 	name := t.Name()
 	db := dbm.NewMemDB()
 	logger := defaultLogger()
-	app := baseapp.NewBaseApp(name, logger, db, nil)
+	app := baseapp.NewBaseApp(name, logger, db, nil, baseapp.SetChainID("test-chain-id"))
 
 	capKey := sdk.NewKVStoreKey("main")
 	capKey2 := sdk.NewKVStoreKey("key2")
@@ -62,8 +64,13 @@ func TestABCI_InitChain(t *testing.T) {
 		Data: key,
 	}
 
+	// initChain is nil and chain ID is wrong - panics
+	require.Panics(t, func() {
+		app.InitChain(abci.RequestInitChain{ChainId: "wrong-chain-id"})
+	})
+
 	// initChain is nil - nothing happens
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(abci.RequestInitChain{ChainId: "test-chain-id"})
 	res := app.Query(query)
 	require.Equal(t, 0, len(res.Value))
 
@@ -179,20 +186,27 @@ func TestABCI_GRPCQuery(t *testing.T) {
 		ConsensusParams: &tmproto.ConsensusParams{},
 	})
 
-	header := tmproto.Header{Height: suite.baseApp.LastBlockHeight() + 1}
-	suite.baseApp.BeginBlock(abci.RequestBeginBlock{Header: header})
-	suite.baseApp.Commit()
-
 	req := testdata.SayHelloRequest{Name: "foo"}
 	reqBz, err := req.Marshal()
 	require.NoError(t, err)
 
+	resQuery := suite.baseApp.Query(abci.RequestQuery{
+		Data: reqBz,
+		Path: "/testpb.Query/SayHello",
+	})
+	require.Equal(t, sdkerrors.ErrInvalidHeight.ABCICode(), resQuery.Code, resQuery)
+	require.Contains(t, resQuery.Log, "TestABCI_GRPCQuery is not ready; please wait for first block")
+
+	header := tmproto.Header{Height: suite.baseApp.LastBlockHeight() + 1}
+	suite.baseApp.BeginBlock(abci.RequestBeginBlock{Header: header})
+	suite.baseApp.Commit()
+
 	reqQuery := abci.RequestQuery{
 		Data: reqBz,
-		Path: "/testdata.Query/SayHello",
+		Path: "/testpb.Query/SayHello",
 	}
 
-	resQuery := suite.baseApp.Query(reqQuery)
+	resQuery = suite.baseApp.Query(reqQuery)
 	require.Equal(t, abci.CodeTypeOK, resQuery.Code, resQuery)
 
 	var res testdata.SayHelloResponse
@@ -1353,7 +1367,8 @@ func TestABCI_Proposal_HappyPath(t *testing.T) {
 		tx2Bytes,
 	}
 	reqProcessProposal := abci.RequestProcessProposal{
-		Txs: reqProposalTxBytes[:],
+		Txs:    reqProposalTxBytes[:],
+		Height: reqPrepareProposal.Height,
 	}
 
 	resProcessProposal := suite.baseApp.ProcessProposal(reqProcessProposal)
@@ -1392,6 +1407,7 @@ func TestABCI_Proposal_Read_State_PrepareProposal(t *testing.T) {
 	suite := NewBaseAppSuite(t, setInitChainerOpt, prepareOpt)
 
 	suite.baseApp.InitChain(abci.RequestInitChain{
+		InitialHeight:   1,
 		ConsensusParams: &tmproto.ConsensusParams{},
 	})
 
@@ -1404,7 +1420,8 @@ func TestABCI_Proposal_Read_State_PrepareProposal(t *testing.T) {
 
 	reqProposalTxBytes := [][]byte{}
 	reqProcessProposal := abci.RequestProcessProposal{
-		Txs: reqProposalTxBytes,
+		Txs:    reqProposalTxBytes,
+		Height: reqPrepareProposal.Height,
 	}
 
 	resProcessProposal := suite.baseApp.ProcessProposal(reqProcessProposal)
@@ -1438,7 +1455,7 @@ func TestABCI_PrepareProposal_ReachedMaxBytes(t *testing.T) {
 		Height:     1,
 	}
 	resPrepareProposal := suite.baseApp.PrepareProposal(reqPrepareProposal)
-	require.Equal(t, 10, len(resPrepareProposal.Txs))
+	require.Equal(t, 11, len(resPrepareProposal.Txs))
 }
 
 func TestABCI_PrepareProposal_BadEncoding(t *testing.T) {
@@ -1463,6 +1480,79 @@ func TestABCI_PrepareProposal_BadEncoding(t *testing.T) {
 	}
 	resPrepareProposal := suite.baseApp.PrepareProposal(reqPrepareProposal)
 	require.Equal(t, 1, len(resPrepareProposal.Txs))
+}
+
+func TestABCI_PrepareProposal_OverGasUnderBytes(t *testing.T) {
+	pool := mempool.NewSenderNonceMempool()
+	suite := NewBaseAppSuite(t, baseapp.SetMempool(pool))
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), NoopCounterServerImpl{})
+
+	// set max block gas limit to 99, this will allow 9 txs of 10 gas each.
+	suite.baseApp.InitChain(abci.RequestInitChain{
+		ConsensusParams: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{MaxGas: 99},
+		},
+	})
+
+	// insert 100 txs, each with a gas limit of 10
+	for i := int64(0); i < 100; i++ {
+		msg := &baseapptestutil.MsgCounter{Counter: i, FailOnHandler: false}
+		msgs := []sdk.Msg{msg}
+
+		builder := suite.txConfig.NewTxBuilder()
+		err := builder.SetMsgs(msgs...)
+		require.NoError(t, err)
+		builder.SetMemo("counter=" + strconv.FormatInt(i, 10) + "&failOnAnte=false")
+		builder.SetGasLimit(10)
+		setTxSignature(t, builder, uint64(i))
+
+		err = pool.Insert(sdk.Context{}, builder.GetTx())
+		require.NoError(t, err)
+	}
+
+	// ensure we only select transactions that fit within the block gas limit
+	res := suite.baseApp.PrepareProposal(abci.RequestPrepareProposal{
+		MaxTxBytes: 1_000_000, // large enough to ignore restriction
+		Height:     1,
+	})
+
+	// Should include 9 transactions
+	require.Len(t, res.Txs, 9, "invalid number of transactions returned")
+}
+
+func TestABCI_PrepareProposal_MaxGas(t *testing.T) {
+	pool := mempool.NewSenderNonceMempool()
+	suite := NewBaseAppSuite(t, baseapp.SetMempool(pool))
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), NoopCounterServerImpl{})
+
+	// set max block gas limit to 100
+	suite.baseApp.InitChain(abci.RequestInitChain{
+		ConsensusParams: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{MaxGas: 100},
+		},
+	})
+
+	// insert 100 txs, each with a gas limit of 10
+	for i := int64(0); i < 100; i++ {
+		msg := &baseapptestutil.MsgCounter{Counter: i, FailOnHandler: false}
+		msgs := []sdk.Msg{msg}
+
+		builder := suite.txConfig.NewTxBuilder()
+		builder.SetMsgs(msgs...)
+		builder.SetMemo("counter=" + strconv.FormatInt(i, 10) + "&failOnAnte=false")
+		builder.SetGasLimit(10)
+		setTxSignature(t, builder, uint64(i))
+
+		err := pool.Insert(sdk.Context{}, builder.GetTx())
+		require.NoError(t, err)
+	}
+
+	// ensure we only select transactions that fit within the block gas limit
+	res := suite.baseApp.PrepareProposal(abci.RequestPrepareProposal{
+		MaxTxBytes: 1_000_000, // large enough to ignore restriction
+		Height:     1,
+	})
+	require.Len(t, res.Txs, 10, "invalid number of transactions returned")
 }
 
 func TestABCI_PrepareProposal_Failures(t *testing.T) {
@@ -1539,7 +1629,162 @@ func TestABCI_ProcessProposal_PanicRecovery(t *testing.T) {
 	})
 
 	require.NotPanics(t, func() {
-		res := suite.baseApp.ProcessProposal(abci.RequestProcessProposal{})
+		res := suite.baseApp.ProcessProposal(abci.RequestProcessProposal{Height: 1})
 		require.Equal(t, res.Status, abci.ResponseProcessProposal_REJECT)
 	})
+}
+
+// TestABCI_Proposal_Reset_State ensures that state is reset between runs of
+// PrepareProposal and ProcessProposal in case they are called multiple times.
+// This is only valid for heights > 1, given that on height 1 we always set the
+// state to be deliverState.
+func TestABCI_Proposal_Reset_State_Between_Calls(t *testing.T) {
+	someKey := []byte("some-key")
+
+	prepareOpt := func(bapp *baseapp.BaseApp) {
+		bapp.SetPrepareProposal(func(ctx sdk.Context, req abci.RequestPrepareProposal) abci.ResponsePrepareProposal {
+			// This key should not exist given that we reset the state on every call.
+			require.False(t, ctx.KVStore(capKey1).Has(someKey))
+			ctx.KVStore(capKey1).Set(someKey, someKey)
+			return abci.ResponsePrepareProposal{Txs: req.Txs}
+		})
+	}
+
+	processOpt := func(bapp *baseapp.BaseApp) {
+		bapp.SetProcessProposal(func(ctx sdk.Context, req abci.RequestProcessProposal) abci.ResponseProcessProposal {
+			// This key should not exist given that we reset the state on every call.
+			require.False(t, ctx.KVStore(capKey1).Has(someKey))
+			ctx.KVStore(capKey1).Set(someKey, someKey)
+			return abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}
+		})
+	}
+
+	suite := NewBaseAppSuite(t, prepareOpt, processOpt)
+
+	suite.baseApp.InitChain(abci.RequestInitChain{
+		ConsensusParams: &tmproto.ConsensusParams{},
+	})
+
+	reqPrepareProposal := abci.RequestPrepareProposal{
+		MaxTxBytes: 1000,
+		Height:     2, // this value can't be 0
+	}
+
+	// Let's pretend something happened and PrepareProposal gets called many
+	// times, this must be safe to do.
+	for i := 0; i < 5; i++ {
+		resPrepareProposal := suite.baseApp.PrepareProposal(reqPrepareProposal)
+		require.Equal(t, 0, len(resPrepareProposal.Txs))
+	}
+
+	reqProposalTxBytes := [][]byte{}
+	reqProcessProposal := abci.RequestProcessProposal{
+		Txs:    reqProposalTxBytes,
+		Height: 2,
+	}
+
+	// Let's pretend something happened and ProcessProposal gets called many
+	// times, this must be safe to do.
+	for i := 0; i < 5; i++ {
+		resProcessProposal := suite.baseApp.ProcessProposal(reqProcessProposal)
+		require.Equal(t, abci.ResponseProcessProposal_ACCEPT, resProcessProposal.Status)
+	}
+
+	suite.baseApp.BeginBlock(abci.RequestBeginBlock{
+		Header: tmproto.Header{Height: suite.baseApp.LastBlockHeight() + 1},
+	})
+}
+
+func TestABCI_Proposal_FailReCheckTx(t *testing.T) {
+	pool := mempool.NewSenderNonceMempool()
+
+	anteOpt := func(bapp *baseapp.BaseApp) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+			// always fail on recheck, just to test the recheck logic
+			if ctx.IsReCheckTx() {
+				return ctx, errors.New("recheck failed in ante handler")
+			}
+
+			return ctx, nil
+		})
+	}
+
+	suite := NewBaseAppSuite(t, anteOpt, baseapp.SetMempool(pool))
+	baseapptestutil.RegisterKeyValueServer(suite.baseApp.MsgServiceRouter(), MsgKeyValueImpl{})
+	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), NoopCounterServerImpl{})
+
+	suite.baseApp.InitChain(abci.RequestInitChain{
+		ConsensusParams: &cmtproto.ConsensusParams{},
+	})
+
+	tx := newTxCounter(t, suite.txConfig, 0, 1)
+	txBytes, err := suite.txConfig.TxEncoder()(tx)
+	require.NoError(t, err)
+
+	reqCheckTx := abci.RequestCheckTx{
+		Tx:   txBytes,
+		Type: abci.CheckTxType_New,
+	}
+	_ = suite.baseApp.CheckTx(reqCheckTx)
+
+	tx2 := newTxCounter(t, suite.txConfig, 1, 1)
+
+	tx2Bytes, err := suite.txConfig.TxEncoder()(tx2)
+	require.NoError(t, err)
+
+	err = pool.Insert(sdk.Context{}, tx2)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, pool.CountTx())
+
+	// call prepareProposal before calling recheck tx, just as a sanity check
+	reqPrepareProposal := abci.RequestPrepareProposal{
+		MaxTxBytes: 1000,
+		Height:     1,
+	}
+	resPrepareProposal := suite.baseApp.PrepareProposal(reqPrepareProposal)
+	require.Equal(t, 2, len(resPrepareProposal.Txs))
+
+	// call recheck on the first tx, it MUST return an error
+	reqReCheckTx := abci.RequestCheckTx{
+		Tx:   txBytes,
+		Type: abci.CheckTxType_Recheck,
+	}
+	resp := suite.baseApp.CheckTx(reqReCheckTx)
+
+	require.True(t, resp.IsErr())
+	require.Equal(t, "recheck failed in ante handler", resp.Log)
+
+	// call prepareProposal again, should return only the second tx
+	resPrepareProposal = suite.baseApp.PrepareProposal(reqPrepareProposal)
+	require.Equal(t, 1, len(resPrepareProposal.Txs))
+	require.Equal(t, tx2Bytes, resPrepareProposal.Txs[0])
+
+	// check the mempool, it should have only the second tx
+	require.Equal(t, 1, pool.CountTx())
+
+	reqProposalTxBytes := tx2Bytes
+
+	reqProcessProposal := abci.RequestProcessProposal{
+		Txs:    [][]byte{reqProposalTxBytes},
+		Height: reqPrepareProposal.Height,
+	}
+
+	resProcessProposal := suite.baseApp.ProcessProposal(reqProcessProposal)
+	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, resProcessProposal.Status)
+
+	suite.baseApp.BeginBlock(abci.RequestBeginBlock{
+		Header: tmproto.Header{Height: suite.baseApp.LastBlockHeight() + 1},
+	})
+
+	// the same txs as in PrepareProposal
+	res := suite.baseApp.DeliverTx(abci.RequestDeliverTx{
+		Tx: reqProposalTxBytes,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, 0, pool.CountTx())
+
+	require.NotEmpty(t, res.Events)
+	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 }

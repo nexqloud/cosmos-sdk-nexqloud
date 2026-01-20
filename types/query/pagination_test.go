@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -194,7 +194,7 @@ func (s *paginationTestSuite) TestPagination() {
 	s.T().Log("verify paginate with offset and key - error")
 	pageReq = &query.PageRequest{Key: res.Pagination.NextKey, Offset: 100, Limit: defaultLimit, CountTotal: false}
 	request = types.NewQueryAllBalancesRequest(addr1, pageReq)
-	_, err = queryClient.AllBalances(gocontext.Background(), request)
+	res, err = queryClient.AllBalances(gocontext.Background(), request)
 	s.Require().Error(err)
 	s.Require().Equal("rpc error: code = InvalidArgument desc = paginate: invalid request, either offset or key is expected, got both", err.Error())
 
@@ -317,7 +317,7 @@ func (s *paginationTestSuite) TestReversePagination() {
 	s.T().Log("verify paginate with offset and key - error")
 	pageReq = &query.PageRequest{Key: res1.Pagination.NextKey, Offset: 100, Limit: defaultLimit, CountTotal: false}
 	request = types.NewQueryAllBalancesRequest(addr1, pageReq)
-	_, err = queryClient.AllBalances(gocontext.Background(), request)
+	res, err = queryClient.AllBalances(gocontext.Background(), request)
 	s.Require().Error(err)
 	s.Require().Equal("rpc error: code = InvalidArgument desc = paginate: invalid request, either offset or key is expected, got both", err.Error())
 

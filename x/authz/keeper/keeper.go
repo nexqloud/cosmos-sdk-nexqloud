@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"time"
 
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cosmos/gogoproto/proto"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -28,6 +28,7 @@ type Keeper struct {
 	cdc        codec.BinaryCodec
 	router     *baseapp.MsgServiceRouter
 	authKeeper authz.AccountKeeper
+	bankKeeper authz.BankKeeper
 }
 
 // NewKeeper constructs a message authorization Keeper
@@ -38,6 +39,13 @@ func NewKeeper(storeKey storetypes.StoreKey, cdc codec.BinaryCodec, router *base
 		router:     router,
 		authKeeper: ak,
 	}
+}
+
+// Super ugly hack to not be breaking in v0.50 and v0.47
+// DO NOT USE.
+func (k Keeper) SetBankKeeper(bk authz.BankKeeper) Keeper {
+	k.bankKeeper = bk
+	return k
 }
 
 // Logger returns a module-specific logger.

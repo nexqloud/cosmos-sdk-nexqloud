@@ -1,6 +1,5 @@
 ---
 sidebar_position: 0
-slug : /modules
 ---
 
 # List of Modules
@@ -22,8 +21,7 @@ Here are some production-grade modules that can be used in Cosmos SDK applicatio
 * [Staking](./staking/README.md) - Proof-of-Stake layer for public blockchains.
 * [Upgrade](./upgrade/README.md) - Software upgrades handling and coordination.
 * [NFT](./nft/README.md) - NFT module implemented based on [ADR43](https://docs.cosmos.network/main/architecture/adr-043-nft-module.html).
-* [Consensus](./consensus/README.md) - Consensus module for modifying Tendermint's ABCI consensus params.
-
+* [Consensus](./consensus/README.md) - Consensus module for modifying CometBFT's ABCI consensus params.
 
 To learn more about the process of building modules, visit the [building modules reference documentation](https://docs.cosmos.network/main/building-modules/intro).
 
@@ -33,4 +31,4 @@ The IBC module for the SDK has moved to its [own repository](https://github.com/
 
 ## CosmWasm
 
-The CosmWasm module enables smart contracts, and has its [own repository](https://github.com/CosmWasm/cosmwasm) and [documentation site](https://docs.cosmwasm.com/docs/1.0).
+The CosmWasm module enables smart contracts, and has its [own repository](https://github.com/CosmWasm/cosmwasm) and [documentation site](https://docs.cosmwasm.com/docs).

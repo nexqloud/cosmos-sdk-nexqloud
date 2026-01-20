@@ -3,12 +3,11 @@ package mock
 import (
 	"io"
 
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/cometbft/cometbft-db"
 	protoio "github.com/cosmos/gogoproto/io"
 
-	"github.com/cosmos/cosmos-sdk/store/metrics"
+	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	pruningtypes "github.com/cosmos/cosmos-sdk/store/pruning/types"
-	snapshottypes "github.com/cosmos/cosmos-sdk/store/snapshots/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -52,10 +51,6 @@ func (ms multiStore) SetTracer(w io.Writer) sdk.MultiStore {
 }
 
 func (ms multiStore) AddListeners(key storetypes.StoreKey, listeners []storetypes.WriteListener) {
-	panic("not implemented")
-}
-
-func (ms multiStore) SetMetrics(metrics.StoreMetrics) {
 	panic("not implemented")
 }
 
@@ -136,6 +131,10 @@ func (ms multiStore) SetIAVLCacheSize(size int) {
 }
 
 func (ms multiStore) SetIAVLDisableFastNode(disable bool) {
+	panic("not implemented")
+}
+
+func (ms multiStore) SetLazyLoading(bool) {
 	panic("not implemented")
 }
 

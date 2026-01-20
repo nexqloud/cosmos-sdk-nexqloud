@@ -143,15 +143,19 @@ func LegacyNewDecFromIntWithPrec(i Int, prec int64) LegacyDec {
 //
 // CONTRACT - This function does not mutate the input str.
 func LegacyNewDecFromStr(str string) (LegacyDec, error) {
+	if len(str) == 0 {
+		return LegacyDec{}, fmt.Errorf("%s: %w", str, ErrLegacyEmptyDecimalStr)
+	}
+
 	// first extract any negative symbol
 	neg := false
-	if len(str) > 0 && str[0] == '-' {
+	if str[0] == '-' {
 		neg = true
 		str = str[1:]
 	}
 
 	if len(str) == 0 {
-		return LegacyDec{}, ErrLegacyEmptyDecimalStr
+		return LegacyDec{}, fmt.Errorf("%s: %w", str, ErrLegacyEmptyDecimalStr)
 	}
 
 	strs := strings.Split(str, ".")
@@ -174,7 +178,7 @@ func LegacyNewDecFromStr(str string) (LegacyDec, error) {
 
 	// add some extra zero's to correct to the Precision factor
 	zerosToAdd := LegacyPrecision - lenDecs
-	zeros := strings.Repeat("0", zerosToAdd)
+	zeros := fmt.Sprintf(`%0`+strconv.Itoa(zerosToAdd)+`s`, "")
 	combinedStr += zeros
 
 	combined, ok := new(big.Int).SetString(combinedStr, 10) // base 10

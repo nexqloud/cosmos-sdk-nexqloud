@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
+	tmtypes "github.com/cometbft/cometbft/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
@@ -261,7 +261,7 @@ func TestValidatorsSortDeterminism(t *testing.T) {
 	// Randomly shuffle validators, sort, and check it is equal to original sort
 	for i := 0; i < 10; i++ {
 		rand.Shuffle(10, func(i, j int) {
-			it := vals[i] //nolint:gocritic
+			it := vals[i]
 			vals[i] = vals[j]
 			vals[j] = it
 		})

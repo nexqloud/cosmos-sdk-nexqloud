@@ -8,10 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	dbm "github.com/cosmos/cosmos-db"
-	"github.com/tendermint/tendermint/libs/log"
+	dbm "github.com/cometbft/cometbft-db"
+	"github.com/cometbft/cometbft/libs/log"
 
-	"cosmossdk.io/client/v2/autocli"
 	"cosmossdk.io/depinject"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -23,8 +22,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/cosmos/cosmos-sdk/store/streaming"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata_pulsar"
+	testdata_pulsar "github.com/cosmos/cosmos-sdk/testutil/testdata/testpb"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -122,7 +122,6 @@ type SimApp struct {
 	appCodec          codec.Codec
 	txConfig          client.TxConfig
 	interfaceRegistry codectypes.InterfaceRegistry
-	autoCliOpts       autocli.AppOptions
 
 	// keepers
 	AccountKeeper         authkeeper.AccountKeeper
@@ -168,21 +167,6 @@ func NewSimApp(
 	var (
 		app        = &SimApp{}
 		appBuilder *runtime.AppBuilder
-		// Below we could construct and set an application specific mempool and ABCI 1.0 Prepare and Process Proposal
-		// handlers. These defaults are already set in the SDK's BaseApp, this shows an example of how to override
-		// them.
-		//
-		// nonceMempool = mempool.NewSenderNonceMempool()
-		// mempoolOpt   = baseapp.SetMempool(nonceMempool)
-		// prepareOpt   = func(app *baseapp.BaseApp) {
-		// 	app.SetPrepareProposal(app.DefaultPrepareProposal())
-		// }
-		// processOpt = func(app *baseapp.BaseApp) {
-		// 	app.SetProcessProposal(app.DefaultProcessProposal())
-		// }
-		//
-		// Further down we'd set the options in the AppBuilder like below.
-		// baseAppOptions = append(baseAppOptions, mempoolOpt, prepareOpt, processOpt)
 
 		// merge the AppConfig and other configuration in one config
 		appConfig = depinject.Configs(
@@ -223,7 +207,6 @@ func NewSimApp(
 		&app.legacyAmino,
 		&app.txConfig,
 		&app.interfaceRegistry,
-		&app.autoCliOpts,
 		&app.AccountKeeper,
 		&app.BankKeeper,
 		&app.CapabilityKeeper,
@@ -245,9 +228,36 @@ func NewSimApp(
 		panic(err)
 	}
 
+	// Below we could construct and set an application specific mempool and
+	// ABCI 1.0 PrepareProposal and ProcessProposal handlers. These defaults are
+	// already set in the SDK's BaseApp, this shows an example of how to override
+	// them.
+	//
+	// Example:
+	//
+	// app.App = appBuilder.Build(...)
+	// nonceMempool := mempool.NewSenderNonceMempool()
+	// abciPropHandler := NewDefaultProposalHandler(nonceMempool, app.App.BaseApp)
+	//
+	// app.App.BaseApp.SetMempool(nonceMempool)
+	// app.App.BaseApp.SetPrepareProposal(abciPropHandler.PrepareProposalHandler())
+	// app.App.BaseApp.SetProcessProposal(abciPropHandler.ProcessProposalHandler())
+	//
+	// Alternatively, you can construct BaseApp options, append those to
+	// baseAppOptions and pass them to the appBuilder.
+	//
+	// Example:
+	//
+	// prepareOpt = func(app *baseapp.BaseApp) {
+	// 	abciPropHandler := baseapp.NewDefaultProposalHandler(nonceMempool, app)
+	// 	app.SetPrepareProposal(abciPropHandler.PrepareProposalHandler())
+	// }
+	// baseAppOptions = append(baseAppOptions, prepareOpt)
+
 	app.App = appBuilder.Build(logger, db, traceStore, baseAppOptions...)
 
-	if err := app.App.BaseApp.SetStreamingService(appOpts, app.appCodec, app.kvStoreKeys()); err != nil {
+	// load state streaming if enabled
+	if _, _, err := streaming.LoadStreamingServices(app.App.BaseApp, appOpts, app.appCodec, logger, app.kvStoreKeys()); err != nil {
 		logger.Error("failed to load state streaming", "err", err)
 		os.Exit(1)
 	}
@@ -320,11 +330,6 @@ func (app *SimApp) TxConfig() client.TxConfig {
 	return app.txConfig
 }
 
-// AutoCliOpts returns the autocli options for the app.
-func (app *SimApp) AutoCliOpts() autocli.AppOptions {
-	return app.autoCliOpts
-}
-
 // GetKey returns the KVStoreKey for the provided store key.
 //
 // NOTE: This is solely to be used for testing purposes.
@@ -356,7 +361,7 @@ func (app *SimApp) GetSubspace(moduleName string) paramstypes.Subspace {
 	return subspace
 }
 
-// SimulationManager implements the SimulationApp interface
+// SimulationManager implements the SimulationApp interface.
 func (app *SimApp) SimulationManager() *module.SimulationManager {
 	return app.sm
 }

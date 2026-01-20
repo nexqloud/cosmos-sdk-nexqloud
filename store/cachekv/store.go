@@ -6,14 +6,14 @@ import (
 	"sort"
 	"sync"
 
-	dbm "github.com/cosmos/cosmos-db"
-	"github.com/tendermint/tendermint/libs/math"
+	dbm "github.com/cometbft/cometbft-db"
+	"github.com/cometbft/cometbft/libs/math"
 
+	"github.com/cosmos/cosmos-sdk/internal/conv"
 	"github.com/cosmos/cosmos-sdk/store/cachekv/internal"
-	"github.com/cosmos/cosmos-sdk/store/internal/conv"
-	"github.com/cosmos/cosmos-sdk/store/internal/kv"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/types/kv"
 )
 
 // cValue represents a cached value.
@@ -151,6 +151,38 @@ func (store *Store) CacheWrap() types.CacheWrap {
 // CacheWrapWithTrace implements the CacheWrapper interface.
 func (store *Store) CacheWrapWithTrace(w io.Writer, tc types.TraceContext) types.CacheWrap {
 	return NewStore(tracekv.NewStore(store, w, tc))
+}
+
+// Copy creates a deep copy of the Store object
+func (store *Store) Copy() types.CacheKVStore {
+	store.mtx.Lock()
+	defer store.mtx.Unlock()
+
+	// Copy cache
+	cacheCopy := make(map[string]*cValue, len(store.cache))
+	for key, val := range store.cache {
+		newVal := *val // Create a copy of the cValue
+		cacheCopy[key] = &newVal
+	}
+
+	// Copy unsortedCache
+	unsortedCacheCopy := make(map[string]struct{}, len(store.unsortedCache))
+	for key := range store.unsortedCache {
+		unsortedCacheCopy[key] = struct{}{}
+	}
+
+	// Copy sortedCache
+	sortedCacheCopy := store.sortedCache.Copy()
+
+	// Create new Store with copied values
+	newStore := &Store{
+		cache:         cacheCopy,
+		unsortedCache: unsortedCacheCopy,
+		sortedCache:   sortedCacheCopy,
+		parent:        store.parent,
+	}
+
+	return newStore
 }
 
 //----------------------------------------
@@ -338,7 +370,7 @@ func (store *Store) dirtyItems(start, end []byte) {
 		}
 	}
 
-	kvL := make([]*kv.Pair, 0, 1+endIndex-startIndex)
+	kvL := make([]*kv.Pair, 0)
 	for i := startIndex; i <= endIndex; i++ {
 		key := strL[i]
 		cacheValue := store.cache[key]

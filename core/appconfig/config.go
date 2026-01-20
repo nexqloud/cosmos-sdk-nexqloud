@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cosmos/cosmos-proto/any"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -42,7 +41,7 @@ func LoadYAML(bz []byte) depinject.Config {
 
 // WrapAny marshals a proto message into a proto Any instance
 func WrapAny(config protoreflect.ProtoMessage) *anypb.Any {
-	cfg, err := any.New(config)
+	cfg, err := anypb.New(config)
 	if err != nil {
 		panic(err)
 	}

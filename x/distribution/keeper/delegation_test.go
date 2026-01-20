@@ -3,9 +3,9 @@ package keeper_test
 import (
 	"testing"
 
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"cosmossdk.io/math"
 
@@ -957,7 +957,7 @@ func Test100PercentCommissionReward(t *testing.T) {
 	// allocate some more rewards
 	distrKeeper.AllocateTokensToValidator(ctx, val, tokens)
 
-	rewards, err := distrKeeper.WithdrawDelegationRewards(ctx, addr, valAddr)
+	rewards, err := distrKeeper.WithdrawDelegationRewards(ctx, sdk.AccAddress(addr), valAddr)
 	require.NoError(t, err)
 
 	zeroRewards := sdk.Coins{sdk.NewCoin(sdk.DefaultBondDenom, math.ZeroInt())}

@@ -4,17 +4,13 @@ import (
 	"fmt"
 	"io"
 
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/cometbft/cometbft-db"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/cosmos/cosmos-sdk/snapshots"
+	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store"
-	"github.com/cosmos/cosmos-sdk/store/metrics"
 	pruningtypes "github.com/cosmos/cosmos-sdk/store/pruning/types"
-	"github.com/cosmos/cosmos-sdk/store/snapshots"
-	snapshottypes "github.com/cosmos/cosmos-sdk/store/snapshots/types"
-	"github.com/cosmos/cosmos-sdk/store/streaming"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/mempool"
 )
@@ -74,6 +70,11 @@ func SetIAVLDisableFastNode(disable bool) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.cms.SetIAVLDisableFastNode(disable) }
 }
 
+// SetIAVLLazyLoading enables/disables lazy loading of the IAVL store.
+func SetIAVLLazyLoading(lazyLoading bool) func(*BaseApp) {
+	return func(bapp *BaseApp) { bapp.cms.SetLazyLoading(lazyLoading) }
+}
+
 // SetInterBlockCache provides a BaseApp option function that sets the
 // inter-block cache.
 func SetInterBlockCache(cache sdk.MultiStorePersistentCache) func(*BaseApp) {
@@ -88,6 +89,11 @@ func SetSnapshot(snapshotStore *snapshots.Store, opts snapshottypes.SnapshotOpti
 // SetMempool sets the mempool on BaseApp.
 func SetMempool(mempool mempool.Mempool) func(*BaseApp) {
 	return func(app *BaseApp) { app.SetMempool(mempool) }
+}
+
+// SetChainID sets the chain ID in BaseApp.
+func SetChainID(chainID string) func(*BaseApp) {
+	return func(app *BaseApp) { app.chainID = chainID }
 }
 
 func (app *BaseApp) SetName(name string) {
@@ -236,25 +242,14 @@ func (app *BaseApp) SetInterfaceRegistry(registry types.InterfaceRegistry) {
 }
 
 // SetStreamingService is used to set a streaming service into the BaseApp hooks and load the listeners into the multistore
-func (app *BaseApp) SetStreamingService(
-	appOpts servertypes.AppOptions,
-	appCodec storetypes.Codec,
-	keys map[string]*storetypes.KVStoreKey,
-) error {
-	streamers, _, err := streaming.LoadStreamingServices(appOpts, appCodec, app.logger, keys)
-	if err != nil {
-		return err
-	}
+func (app *BaseApp) SetStreamingService(s StreamingService) {
 	// add the listeners for each StoreKey
-	for _, streamer := range streamers {
-		for key, lis := range streamer.Listeners() {
-			app.cms.AddListeners(key, lis)
-		}
-		// register the StreamingService within the BaseApp
-		// BaseApp will pass BeginBlock, DeliverTx, and EndBlock requests and responses to the streaming services to update their ABCI context
-		app.abciListeners = append(app.abciListeners, streamer)
+	for key, lis := range s.Listeners() {
+		app.cms.AddListeners(key, lis)
 	}
-	return nil
+	// register the StreamingService within the BaseApp
+	// BaseApp will pass BeginBlock, DeliverTx, and EndBlock requests and responses to the streaming services to update their ABCI context
+	app.abciListeners = append(app.abciListeners, s)
 }
 
 // SetTxDecoder sets the TxDecoder if it wasn't provided in the BaseApp constructor.
@@ -297,13 +292,4 @@ func (app *BaseApp) SetPrepareProposal(handler sdk.PrepareProposalHandler) {
 	}
 
 	app.prepareProposal = handler
-}
-
-// SetStoreMetrics sets the prepare proposal function for the BaseApp.
-func (app *BaseApp) SetStoreMetrics(gatherer metrics.StoreMetrics) {
-	if app.sealed {
-		panic("SetStoreMetrics() on sealed BaseApp")
-	}
-
-	app.cms.SetMetrics(gatherer)
 }

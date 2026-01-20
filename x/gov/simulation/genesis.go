@@ -1,5 +1,7 @@
 package simulation
 
+// DONTCOVER
+
 import (
 	"encoding/json"
 	"fmt"
@@ -32,8 +34,8 @@ func GenDepositParamsDepositPeriod(r *rand.Rand) time.Duration {
 }
 
 // GenDepositParamsMinDeposit returns randomized DepositParamsMinDeposit
-func GenDepositParamsMinDeposit(r *rand.Rand, bondDenom string) sdk.Coins {
-	return sdk.NewCoins(sdk.NewInt64Coin(bondDenom, int64(simulation.RandIntBetween(r, 1, 1e3))))
+func GenDepositParamsMinDeposit(r *rand.Rand) sdk.Coins {
+	return sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, int64(simulation.RandIntBetween(r, 1, 1e3))))
 }
 
 // GenDepositMinInitialRatio returns randomized DepositMinInitialRatio
@@ -68,7 +70,7 @@ func RandomizedGenState(simState *module.SimulationState) {
 	var minDeposit sdk.Coins
 	simState.AppParams.GetOrGenerate(
 		simState.Cdc, DepositParamsMinDeposit, &minDeposit, simState.Rand,
-		func(r *rand.Rand) { minDeposit = GenDepositParamsMinDeposit(r, simState.BondDenom) },
+		func(r *rand.Rand) { minDeposit = GenDepositParamsMinDeposit(r) },
 	)
 
 	var depositPeriod time.Duration
@@ -109,7 +111,7 @@ func RandomizedGenState(simState *module.SimulationState) {
 
 	govGenesis := v1.NewGenesisState(
 		startingProposalID,
-		v1.NewParams(minDeposit, depositPeriod, votingPeriod, quorum.String(), threshold.String(), veto.String(), minInitialDepositRatio.String()),
+		v1.NewParams(minDeposit, depositPeriod, votingPeriod, quorum.String(), threshold.String(), veto.String(), minInitialDepositRatio.String(), simState.Rand.Intn(2) == 0, simState.Rand.Intn(2) == 0, simState.Rand.Intn(2) == 0),
 	)
 
 	bz, err := json.MarshalIndent(&govGenesis, "", " ")

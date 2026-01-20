@@ -14,11 +14,8 @@
   <a href="https://goreportcard.com/report/github.com/cosmos/cosmos-sdk">
     <img alt="Go report card" src="https://goreportcard.com/badge/github.com/cosmos/cosmos-sdk" />
   </a>
-  <a href="https://sonarcloud.io/summary/overall?id=cosmos_cosmos-sdk">
-    <img alt="Code Coverage" src="https://sonarcloud.io/api/project_badges/measure?project=cosmos_cosmos-sdk&metric=coverage" />
-  </a>
-  <a href="https://sonarcloud.io/summary/overall?id=cosmos_cosmos-sdk">
-    <img alt="SonarCloud Analysis" src="https://sonarcloud.io/api/project_badges/measure?project=cosmos_cosmos-sdk&metric=alert_status">
+  <a href="https://codecov.io/gh/cosmos/cosmos-sdk">
+    <img alt="Code Coverage" src="https://codecov.io/gh/cosmos/cosmos-sdk/branch/main/graph/badge.svg" />
   </a>
 </div>
 <div align="center">
@@ -63,10 +60,6 @@ The Cosmos Hub application, `gaia`, has its own [cosmos/gaia repository](https:/
 ### Inter-Blockchain Communication (IBC)
 
 The IBC module for the Cosmos SDK has its own [cosmos/ibc-go repository](https://github.com/cosmos/ibc-go). Go there to build and integrate with the IBC module.
-
-### Ignite CLI
-
-Ignite CLI is the all-in-one platform to build, launch, and maintain any crypto application on a sovereign and secured blockchain. If you are building a new app or a new module, use [Ignite CLI](https://github.com/ignite/cli) to get started and speed up development.
 
 ## Disambiguation
 

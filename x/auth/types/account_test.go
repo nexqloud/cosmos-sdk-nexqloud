@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
 	"cosmossdk.io/depinject"
 
@@ -50,8 +51,11 @@ func TestBaseAddressPubKey(t *testing.T) {
 	require.Nil(t, err)
 	require.EqualValues(t, addr2, acc2.GetAddress())
 
+	// no error when calling MarshalYAML with an account with pubkey
+	_, err = acc.MarshalYAML()
+	require.Nil(t, err)
+
 	// no panic on calling string with an account with pubkey
-	require.NotEmpty(t, acc.String())
 	require.NotPanics(t, func() { _ = acc.String() })
 }
 
@@ -123,14 +127,14 @@ func TestGenesisAccountValidate(t *testing.T) {
 	}
 }
 
-func TestModuleAccountString(t *testing.T) {
+func TestModuleAccountMarshalYAML(t *testing.T) {
 	name := "test"
 	moduleAcc := types.NewEmptyModuleAccount(name, types.Minter, types.Burner, types.Staking)
-	want := `base_account:<address:"cosmos1n7rdpqvgf37ktx30a2sv2kkszk3m7ncmg5drhe" > name:"test" permissions:"minter" permissions:"burner" permissions:"staking" `
-	require.Equal(t, want, moduleAcc.String())
-	moduleAcc.SetSequence(10)
-	want = `base_account:<address:"cosmos1n7rdpqvgf37ktx30a2sv2kkszk3m7ncmg5drhe" sequence:10 > name:"test" permissions:"minter" permissions:"burner" permissions:"staking" `
-	require.Equal(t, want, moduleAcc.String())
+	bs, err := yaml.Marshal(moduleAcc)
+	require.NoError(t, err)
+
+	want := "account_number: 0\naddress: cosmos1n7rdpqvgf37ktx30a2sv2kkszk3m7ncmg5drhe\nname: test\npermissions:\n- minter\n- burner\n- staking\npublic_key: \"\"\nsequence: 0\n"
+	require.Equal(t, want, string(bs))
 }
 
 func TestHasPermissions(t *testing.T) {
@@ -223,4 +227,9 @@ func TestNewModuleAddressOrBech32Address(t *testing.T) {
 	input := "cosmos1cwwv22j5ca08ggdv9c2uky355k908694z577tv"
 	require.Equal(t, input, types.NewModuleAddressOrBech32Address(input).String())
 	require.Equal(t, "cosmos1jv65s3grqf6v6jl3dp4t6c9t9rk99cd88lyufl", types.NewModuleAddressOrBech32Address("distribution").String())
+}
+
+func TestModuleAccountValidateNilBaseAccount(t *testing.T) {
+	ma := &types.ModuleAccount{Name: "foo"}
+	_ = ma.Validate()
 }

@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cometbft/cometbft/libs/log"
+	tmrpcserver "github.com/cometbft/cometbft/rpc/jsonrpc/server"
 	gateway "github.com/cosmos/gogogateway"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"github.com/tendermint/tendermint/libs/log"
-	tmrpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
@@ -57,7 +57,7 @@ func New(clientCtx client.Context, logger log.Logger) *Server {
 	// Using the gogo/gateway package with the gRPC-Gateway WithMarshaler option fixes the scalar field marshalling issue.
 	marshalerOption := &gateway.JSONPb{
 		EmitDefaults: true,
-		Indent:       "  ",
+		Indent:       "",
 		OrigName:     true,
 		AnyResolver:  clientCtx.InterfaceRegistry,
 	}

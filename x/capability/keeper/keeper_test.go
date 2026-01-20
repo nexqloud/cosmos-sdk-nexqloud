@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	stakingModuleName = "staking"
-	bankModuleName    = "bank"
+	stakingModuleName string = "staking"
+	bankModuleName    string = "bank"
 )
 
 type KeeperTestSuite struct {
@@ -272,7 +272,7 @@ func (suite *KeeperTestSuite) TestReleaseCapability() {
 	suite.Require().Error(sk1.ReleaseCapability(suite.ctx, nil))
 }
 
-func (suite KeeperTestSuite) TestRevertCapability() { //nolint:govet // this is a test, we can copy locks
+func (suite KeeperTestSuite) TestRevertCapability() {
 	sk := suite.keeper.ScopeToModule(bankModuleName)
 
 	ms := suite.ctx.MultiStore()

@@ -15,21 +15,25 @@ import (
 	"testing"
 	"time"
 
-	dbm "github.com/cosmos/cosmos-db"
+	dbm "github.com/cometbft/cometbft-db"
+	tmrand "github.com/cometbft/cometbft/libs/rand"
+	"github.com/cometbft/cometbft/node"
+	tmclient "github.com/cometbft/cometbft/rpc/client"
 	"github.com/spf13/cobra"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/node"
-	tmclient "github.com/tendermint/tendermint/rpc/client"
 	"google.golang.org/grpc"
 
 	"cosmossdk.io/math"
+	tmlog "github.com/cometbft/cometbft/libs/log"
+
 	"github.com/cosmos/cosmos-sdk/testutil/configurator"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	tmlog "github.com/tendermint/tendermint/libs/log"
 
 	"cosmossdk.io/depinject"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/cosmos/cosmos-sdk/client/grpc/tmservice"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -45,15 +49,15 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
-	_ "github.com/cosmos/cosmos-sdk/x/auth"           // import auth as a blank
-	_ "github.com/cosmos/cosmos-sdk/x/auth/tx/config" // import auth tx config as a blank
+	_ "github.com/cosmos/cosmos-sdk/x/auth"
+	_ "github.com/cosmos/cosmos-sdk/x/auth/tx/config"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	_ "github.com/cosmos/cosmos-sdk/x/bank" // import bank as a blank
+	_ "github.com/cosmos/cosmos-sdk/x/bank"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	_ "github.com/cosmos/cosmos-sdk/x/consensus" // import consensus as a blank
+	_ "github.com/cosmos/cosmos-sdk/x/consensus"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
-	_ "github.com/cosmos/cosmos-sdk/x/params"  // import params as a blank
-	_ "github.com/cosmos/cosmos-sdk/x/staking" // import staking as a blank
+	_ "github.com/cosmos/cosmos-sdk/x/params"
+	_ "github.com/cosmos/cosmos-sdk/x/staking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
@@ -142,8 +146,7 @@ func MinimumAppConfig() depinject.Config {
 		configurator.GenutilModule(),
 		configurator.StakingModule(),
 		configurator.ConsensusModule(),
-		configurator.TxModule(),
-	)
+		configurator.TxModule())
 }
 
 func DefaultConfigWithAppConfig(appConfig depinject.Config) (Config, error) {
@@ -185,6 +188,7 @@ func DefaultConfigWithAppConfig(appConfig depinject.Config) (Config, error) {
 			nil,
 			baseapp.SetPruning(pruningtypes.NewPruningOptionsFromString(val.GetAppConfig().Pruning)),
 			baseapp.SetMinGasPrices(val.GetAppConfig().MinGasPrices),
+			baseapp.SetChainID(cfg.ChainID),
 		)
 
 		testdata.RegisterQueryServer(app.GRPCQueryRouter(), testdata.QueryImpl{})
@@ -236,6 +240,7 @@ type (
 		ValAddress sdk.ValAddress
 		RPCClient  tmclient.Client
 
+		app     servertypes.Application
 		tmNode  *node.Node
 		api     *api.Server
 		grpc    *grpc.Server
@@ -342,7 +347,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 				apiListenAddr = cfg.APIAddress
 			} else {
 				var err error
-				apiListenAddr, _, err = FreeTCPAddr()
+				apiListenAddr, _, err = server.FreeTCPAddr()
 				if err != nil {
 					return nil, err
 				}
@@ -358,7 +363,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 			if cfg.RPCAddress != "" {
 				tmCfg.RPC.ListenAddress = cfg.RPCAddress
 			} else {
-				rpcAddr, _, err := FreeTCPAddr()
+				rpcAddr, _, err := server.FreeTCPAddr()
 				if err != nil {
 					return nil, err
 				}
@@ -368,7 +373,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 			if cfg.GRPCAddress != "" {
 				appCfg.GRPC.Address = cfg.GRPCAddress
 			} else {
-				_, grpcPort, err := FreeTCPAddr()
+				_, grpcPort, err := server.FreeTCPAddr()
 				if err != nil {
 					return nil, err
 				}
@@ -376,7 +381,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 			}
 			appCfg.GRPC.Enable = true
 
-			_, grpcWebPort, err := FreeTCPAddr()
+			_, grpcWebPort, err := server.FreeTCPAddr()
 			if err != nil {
 				return nil, err
 			}
@@ -410,13 +415,13 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 		tmCfg.Moniker = nodeDirName
 		monikers[i] = nodeDirName
 
-		proxyAddr, _, err := FreeTCPAddr()
+		proxyAddr, _, err := server.FreeTCPAddr()
 		if err != nil {
 			return nil, err
 		}
 		tmCfg.ProxyApp = proxyAddr
 
-		p2pAddr, _, err := FreeTCPAddr()
+		p2pAddr, _, err := server.FreeTCPAddr()
 		if err != nil {
 			return nil, err
 		}
@@ -521,8 +526,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 			WithKeybase(kb).
 			WithTxConfig(cfg.TxConfig)
 
-		// When Textual is wired up, the context argument should be retrieved from the client context.
-		err = tx.Sign(context.TODO(), txFactory, nodeDirName, txBuilder, true)
+		err = tx.Sign(txFactory, nodeDirName, txBuilder, true)
 		if err != nil {
 			return nil, err
 		}
@@ -546,7 +550,11 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 			WithCodec(cfg.Codec).
 			WithLegacyAmino(cfg.LegacyAmino).
 			WithTxConfig(cfg.TxConfig).
-			WithAccountRetriever(cfg.AccountRetriever)
+			WithAccountRetriever(cfg.AccountRetriever).
+			WithNodeURI(tmCfg.RPC.ListenAddress)
+
+		// Provide ChainID here since we can't modify it in the Comet config.
+		ctx.Viper.Set(flags.FlagChainID, cfg.ChainID)
 
 		network.Validators[i] = &Validator{
 			AppConfig:  appCfg,
@@ -575,8 +583,7 @@ func New(l Logger, baseDir string, cfg Config) (*Network, error) {
 
 	l.Log("starting test network...")
 	for idx, v := range network.Validators {
-		err := startInProcess(cfg, v)
-		if err != nil {
+		if err := startInProcess(cfg, v); err != nil {
 			return nil, err
 		}
 		l.Log("started validator", idx)
@@ -603,12 +610,27 @@ func (n *Network) LatestHeight() (int64, error) {
 		return 0, errors.New("no validators available")
 	}
 
-	status, err := n.Validators[0].RPCClient.Status(context.Background())
-	if err != nil {
-		return 0, err
-	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 
-	return status.SyncInfo.LatestBlockHeight, nil
+	timeout := time.NewTimer(time.Second * 5)
+	defer timeout.Stop()
+
+	var latestHeight int64
+	val := n.Validators[0]
+	queryClient := tmservice.NewServiceClient(val.ClientCtx)
+
+	for {
+		select {
+		case <-timeout.C:
+			return latestHeight, errors.New("timeout exceeded waiting for block")
+		case <-ticker.C:
+			res, err := queryClient.GetLatestBlock(context.Background(), &tmservice.GetLatestBlockRequest{})
+			if err == nil && res != nil {
+				return res.SdkBlock.Header.Height, nil
+			}
+		}
+	}
 }
 
 // WaitForHeight performs a blocking check where it waits for a block to be
@@ -633,21 +655,41 @@ func (n *Network) WaitForHeightWithTimeout(h int64, t time.Duration) (int64, err
 
 	var latestHeight int64
 	val := n.Validators[0]
+	queryClient := tmservice.NewServiceClient(val.ClientCtx)
 
 	for {
 		select {
 		case <-timeout.C:
 			return latestHeight, errors.New("timeout exceeded waiting for block")
 		case <-ticker.C:
-			status, err := val.RPCClient.Status(context.Background())
-			if err == nil && status != nil {
-				latestHeight = status.SyncInfo.LatestBlockHeight
+
+			res, err := queryClient.GetLatestBlock(context.Background(), &tmservice.GetLatestBlockRequest{})
+			if err == nil && res != nil {
+				latestHeight = res.GetSdkBlock().Header.Height
 				if latestHeight >= h {
 					return latestHeight, nil
 				}
 			}
 		}
 	}
+}
+
+// RetryForBlocks will wait for the next block and execute the function provided.
+// It will do this until the function returns a nil error or until the number of
+// blocks has been reached.
+func (n *Network) RetryForBlocks(retryFunc func() error, blocks int) error {
+	for i := 0; i < blocks; i++ {
+		n.WaitForNextBlock()
+		err := retryFunc()
+		if err == nil {
+			return nil
+		}
+		// we've reached the last block to wait, return the error
+		if i == blocks-1 {
+			return err
+		}
+	}
+	return nil
 }
 
 // WaitForNextBlock waits for the next block to be committed, returning an error
@@ -691,6 +733,12 @@ func (n *Network) Cleanup() {
 			v.grpc.Stop()
 			if v.grpcWeb != nil {
 				_ = v.grpcWeb.Close()
+			}
+		}
+
+		if v.app != nil {
+			if err := v.app.Close(); err != nil {
+				n.Logger.Log("failed to stop validator ABCI application", "err", err)
 			}
 		}
 	}

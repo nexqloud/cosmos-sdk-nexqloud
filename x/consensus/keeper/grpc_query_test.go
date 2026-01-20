@@ -1,9 +1,10 @@
 package keeper_test
 
 import (
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	tmtypes "github.com/cometbft/cometbft/types"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/consensus/types"
 )
 
@@ -46,7 +47,9 @@ func (s *KeeperTestSuite) TestGRPCQueryConsensusParams() {
 			s.SetupTest() // reset
 
 			tc.malleate()
-			res, err := s.queryClient.Params(s.ctx, &tc.req)
+			ctx := sdk.WrapSDKContext(s.ctx)
+
+			res, err := s.queryClient.Params(ctx, &tc.req)
 
 			if tc.expPass {
 				s.Require().NoError(err)

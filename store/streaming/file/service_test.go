@@ -1,7 +1,6 @@
 package file
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -10,19 +9,23 @@ import (
 	"sync"
 	"testing"
 
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/log"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
+	"github.com/cosmos/cosmos-sdk/codec"
+	codecTypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/store/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 var (
-	testMarshaller               = types.NewTestCodec()
+	interfaceRegistry            = codecTypes.NewInterfaceRegistry()
+	testMarshaller               = codec.NewProtoCodec(interfaceRegistry)
 	testStreamingService         *StreamingService
 	testListener1, testListener2 types.WriteListener
-	emptyContext                 = context.TODO()
+	emptyContext                 = sdk.Context{}
 
 	// test abci message types
 	mockHash          = []byte{1, 2, 3, 4, 5, 6, 7, 8, 9}
@@ -91,8 +94,8 @@ var (
 	}
 
 	// mock store keys
-	mockStoreKey1 = types.NewKVStoreKey("mockStore1")
-	mockStoreKey2 = types.NewKVStoreKey("mockStore2")
+	mockStoreKey1 = sdk.NewKVStoreKey("mockStore1")
+	mockStoreKey2 = sdk.NewKVStoreKey("mockStore2")
 
 	// file stuff
 	testPrefix = "testPrefix"
@@ -329,7 +332,8 @@ func readInFile(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	size := types.BigEndianToUint64(bz[:8])
+
+	size := sdk.BigEndianToUint64(bz[:8])
 	if len(bz) != int(size)+8 {
 		return nil, errors.New("incomplete file ")
 	}

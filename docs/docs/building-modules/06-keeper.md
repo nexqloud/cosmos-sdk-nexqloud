@@ -8,9 +8,7 @@ sidebar_position: 1
 `Keeper`s refer to a Cosmos SDK abstraction whose role is to manage access to the subset of the state defined by various modules. `Keeper`s are module-specific, i.e. the subset of state defined by a module can only be accessed by a `keeper` defined in said module. If a module needs to access the subset of state defined by another module, a reference to the second module's internal `keeper` needs to be passed to the first one. This is done in `app.go` during the instantiation of module keepers.
 :::
 
-:::note
-
-### Pre-requisite Readings
+:::note Pre-requisite Readings
 
 * [Introduction to Cosmos SDK Modules](./01-intro.md)
 
@@ -43,7 +41,7 @@ type Keeper struct {
 For example, here is the type definition of the `keeper` from the `staking` module:
 
 ```go reference
-https://github.com/cosmos/cosmos-sdk/blob/v0.46.0/x/staking/keeper/keeper.go#L21-L29
+https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/x/staking/keeper/keeper.go#L23-L31
 ```
 
 Let us go through the different parameters:
@@ -82,12 +80,12 @@ and the method will go through the following steps:
 2. Marshal `value` to `[]byte` using the codec `cdc`.
 3. Set the encoded value in the store at location `key` using the `Set(key []byte, value []byte)` method of the store.
 
-For more, see an example of `keeper`'s [methods implementation from the `staking` module](https://github.com/cosmos/cosmos-sdk/blob/v0.46.0/x/staking/keeper/keeper.go).
+For more, see an example of `keeper`'s [methods implementation from the `staking` module](https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/x/staking/keeper/keeper.go).
 
 The [module `KVStore`](../core/04-store.md#kvstore-and-commitkvstore-interfaces) also provides an `Iterator()` method which returns an `Iterator` object to iterate over a domain of keys.
 
 This is an example from the `auth` module to iterate accounts:
 
 ```go reference
-https://github.com/cosmos/cosmos-sdk/blob/v0.46.0/x/auth/keeper/account.go#L76-L90
+https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/x/auth/keeper/account.go#L94-L108
 ```

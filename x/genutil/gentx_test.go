@@ -16,6 +16,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltestutil "github.com/cosmos/cosmos-sdk/x/genutil/testutil"
@@ -23,7 +24,6 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 var (
@@ -90,7 +90,9 @@ func (suite *GenTxTestSuite) setAccountBalance(balances []banktypes.Balance) jso
 		},
 		Supply: sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 0)},
 	}
-	bankGenesisState.Balances = append(bankGenesisState.Balances, balances...)
+	for _, balance := range balances {
+		bankGenesisState.Balances = append(bankGenesisState.Balances, balance)
+	}
 	for _, balance := range bankGenesisState.Balances {
 		bankGenesisState.Supply.Add(balance.Coins...)
 	}

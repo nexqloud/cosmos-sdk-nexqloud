@@ -6,7 +6,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -19,9 +18,6 @@ import (
 // metadata. It is meant to be passed as an argument into `NewTextual`.
 type CoinMetadataQueryFn func(ctx context.Context, denom string) (*bankv1beta1.Metadata, error)
 
-// ValueRendererCreator is a function returning a ValueRenderer.
-type ValueRendererCreator func(protoreflect.FieldDescriptor) ValueRenderer
-
 // Textual holds the configuration for dispatching
 // to specific value renderers for SIGN_MODE_TEXTUAL.
 type Textual struct {
@@ -31,9 +27,9 @@ type Textual struct {
 	// server-side code) or a gRPC query client (for client-side code).
 	coinMetadataQuerier CoinMetadataQueryFn
 	// scalars defines a registry for Cosmos scalars.
-	scalars map[string]ValueRendererCreator
-	// messages defines a registry for custom message renderers.
-	// Note that we also use this same registry for the
+	scalars map[string]ValueRenderer
+	// messages defines a registry for custom message renderers, as defined in
+	// point #9 in the spec. Note that we also use this same registry for the
 	// following messages, as they can be thought of custom message rendering:
 	// - SDK coin and coins
 	// - Protobuf timestamp
@@ -49,12 +45,12 @@ func NewTextual(q CoinMetadataQueryFn) Textual {
 	return t
 }
 
-// GetFieldValueRenderer returns the value renderer for the given FieldDescriptor.
-func (r *Textual) GetFieldValueRenderer(fd protoreflect.FieldDescriptor) (ValueRenderer, error) {
+// GetValueRenderer returns the value renderer for the given FieldDescriptor.
+func (r Textual) GetValueRenderer(fd protoreflect.FieldDescriptor) (ValueRenderer, error) {
 	switch {
 	// Scalars, such as sdk.Int and sdk.Dec encoded as strings.
-	case fd.Kind() == protoreflect.StringKind:
-		if proto.GetExtension(fd.Options(), cosmos_proto.E_Scalar) != "" {
+	case fd.Kind() == protoreflect.StringKind && proto.GetExtension(fd.Options(), cosmos_proto.E_Scalar) != "":
+		{
 			scalar, ok := proto.GetExtension(fd.Options(), cosmos_proto.E_Scalar).(string)
 			if !ok || scalar == "" {
 				return nil, fmt.Errorf("got extension option %s of type %T", scalar, scalar)
@@ -65,10 +61,8 @@ func (r *Textual) GetFieldValueRenderer(fd protoreflect.FieldDescriptor) (ValueR
 				return nil, fmt.Errorf("got empty value renderer for scalar %s", scalar)
 			}
 
-			return vr(fd), nil
+			return vr, nil
 		}
-		return NewStringValueRenderer(), nil
-
 	case fd.Kind() == protoreflect.BytesKind:
 		return NewBytesValueRenderer(), nil
 
@@ -77,10 +71,12 @@ func (r *Textual) GetFieldValueRenderer(fd protoreflect.FieldDescriptor) (ValueR
 		fd.Kind() == protoreflect.Uint64Kind ||
 		fd.Kind() == protoreflect.Int32Kind ||
 		fd.Kind() == protoreflect.Int64Kind:
-		return NewIntValueRenderer(fd), nil
+		{
+			return NewIntValueRenderer(), nil
+		}
 
-	case fd.Kind() == protoreflect.EnumKind:
-		return NewEnumValueRenderer(fd), nil
+	case fd.Kind() == protoreflect.StringKind:
+		return stringValueRenderer{}, nil
 
 	case fd.Kind() == protoreflect.MessageKind:
 		md := fd.Message()
@@ -90,46 +86,36 @@ func (r *Textual) GetFieldValueRenderer(fd protoreflect.FieldDescriptor) (ValueR
 		if found {
 			return vr, nil
 		}
-
 		if fd.IsMap() {
 			return nil, fmt.Errorf("value renderers cannot format value of type map")
 		}
-		return NewMessageValueRenderer(r, md), nil
+		if fd.IsList() {
+			// This will be implemented in https://github.com/cosmos/cosmos-sdk/issues/12714
+			return nil, fmt.Errorf("repeated field renderer not yet implemented")
+		}
+		return NewMessageValueRenderer(&r, md), nil
 
 	default:
 		return nil, fmt.Errorf("value renderers cannot format value of type %s", fd.Kind())
 	}
 }
 
-// GetMessageValueRenderer is a specialization of GetValueRenderer for messages.
-// It is useful when the message type is discovered outside the context of a field,
-// e.g. when handling a google.protobuf.Any.
-func (r *Textual) GetMessageValueRenderer(md protoreflect.MessageDescriptor) (ValueRenderer, error) {
-	fullName := md.FullName()
-	vr, found := r.messages[fullName]
-	if found {
-		return vr, nil
-	}
-	return NewMessageValueRenderer(r, md), nil
-}
-
 func (r *Textual) init() {
 	if r.scalars == nil {
-		r.scalars = map[string]ValueRendererCreator{}
-		r.scalars["cosmos.Int"] = func(fd protoreflect.FieldDescriptor) ValueRenderer { return NewIntValueRenderer(fd) }
-		r.scalars["cosmos.Dec"] = func(_ protoreflect.FieldDescriptor) ValueRenderer { return NewDecValueRenderer() }
+		r.scalars = map[string]ValueRenderer{}
+		r.scalars["cosmos.Int"] = NewIntValueRenderer()
+		r.scalars["cosmos.Dec"] = NewDecValueRenderer()
 	}
 	if r.messages == nil {
 		r.messages = map[protoreflect.FullName]ValueRenderer{}
 		r.messages[(&basev1beta1.Coin{}).ProtoReflect().Descriptor().FullName()] = NewCoinsValueRenderer(r.coinMetadataQuerier)
 		r.messages[(&durationpb.Duration{}).ProtoReflect().Descriptor().FullName()] = NewDurationValueRenderer()
 		r.messages[(&timestamppb.Timestamp{}).ProtoReflect().Descriptor().FullName()] = NewTimestampValueRenderer()
-		r.messages[(&anypb.Any{}).ProtoReflect().Descriptor().FullName()] = NewAnyValueRenderer(r)
 	}
 }
 
 // DefineScalar adds a value renderer to the given Cosmos scalar.
-func (r *Textual) DefineScalar(scalar string, vr ValueRendererCreator) {
+func (r *Textual) DefineScalar(scalar string, vr ValueRenderer) {
 	r.init()
 	r.scalars[scalar] = vr
 }

@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"io"
 
-	dbm "github.com/cosmos/cosmos-db"
-	abci "github.com/tendermint/tendermint/abci/types"
+	dbm "github.com/cometbft/cometbft-db"
+	abci "github.com/cometbft/cometbft/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/store/internal/kv"
-	"github.com/cosmos/cosmos-sdk/store/metrics"
+	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	pruningtypes "github.com/cosmos/cosmos-sdk/store/pruning/types"
-	snapshottypes "github.com/cosmos/cosmos-sdk/store/snapshots/types"
+	"github.com/cosmos/cosmos-sdk/types/kv"
 )
 
 type Store interface {
@@ -136,7 +135,8 @@ type MultiStore interface {
 // From MultiStore.CacheMultiStore()....
 type CacheMultiStore interface {
 	MultiStore
-	Write() // Writes operations to underlying KVStore
+	Write()                // Writes operations to underlying KVStore
+	Copy() CacheMultiStore // Returns a deep copy of the CacheMultiStore
 }
 
 // CommitMultiStore is an interface for a MultiStore without cache capabilities.
@@ -189,6 +189,9 @@ type CommitMultiStore interface {
 	// SetIAVLDisableFastNode enables/disables fastnode feature on iavl.
 	SetIAVLDisableFastNode(disable bool)
 
+	// SetIAVLLazyLoading enable/disable lazy loading on iavl.
+	SetLazyLoading(lazyLoading bool)
+
 	// RollbackToVersion rollback the db to specific version(height).
 	RollbackToVersion(version int64) error
 
@@ -198,9 +201,6 @@ type CommitMultiStore interface {
 	// AddListeners adds WriteListeners for the KVStore belonging to the provided StoreKey
 	// It appends the listeners to a current set, if one already exists
 	AddListeners(key StoreKey, listeners []WriteListener)
-
-	// SetMetrics sets the metrics for the KVStore
-	SetMetrics(metrics metrics.StoreMetrics)
 }
 
 //---------subsp-------------------------------
@@ -253,6 +253,7 @@ type CacheKVStore interface {
 
 	// Writes operations to underlying KVStore
 	Write()
+	Copy() CacheKVStore
 }
 
 // CommitKVStore is an interface for MultiStore.
@@ -366,19 +367,6 @@ func NewKVStoreKey(name string) *KVStoreKey {
 	return &KVStoreKey{
 		name: name,
 	}
-}
-
-// NewKVStoreKeys returns a map of new  pointers to KVStoreKey's.
-// The function will panic if there is a potential conflict in names (see `assertNoPrefix`
-// function for more details).
-func NewKVStoreKeys(names ...string) map[string]*KVStoreKey {
-	assertNoCommonPrefix(names)
-	keys := make(map[string]*KVStoreKey, len(names))
-	for _, n := range names {
-		keys[n] = NewKVStoreKey(n)
-	}
-
-	return keys
 }
 
 func (key *KVStoreKey) Name() string {

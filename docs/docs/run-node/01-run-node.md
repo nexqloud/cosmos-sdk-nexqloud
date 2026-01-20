@@ -8,9 +8,7 @@ sidebar_position: 1
 Now that the application is ready and the keyring populated, it's time to see how to run the blockchain node. In this section, the application we are running is called [`simapp`](https://github.com/cosmos/cosmos-sdk/tree/main/simapp), and its corresponding CLI binary `simd`.
 :::
 
-:::note
-
-### Pre-requisite Readings
+:::note Pre-requisite Readings
 
 * [Anatomy of a Cosmos SDK Application](../basics/00-app-anatomy.md)
 * [Setting up the keyring](./00-keyring.md)
@@ -39,7 +37,7 @@ The `~/.simapp` folder has the following structure:
   |- data                           # Contains the databases used by the node.
   |- config/
       |- app.toml                   # Application-related configuration file.
-      |- config.toml                # Tendermint-related configuration file.
+      |- config.toml                # CometBFT-related configuration file.
       |- genesis.json               # The genesis file.
       |- node_key.json              # Private key to use for node authentication in the p2p protocol.
       |- priv_validator_key.json    # Private key to use as a validator in the consensus protocol.
@@ -82,9 +80,9 @@ Now that you have created a local account, go ahead and grant it some `stake` to
 simd genesis add-genesis-account $MY_VALIDATOR_ADDRESS 100000000000stake
 ```
 
-Recall that `$MY_VALIDATOR_ADDRESS` is a variable that holds the address of the `my_validator` key in the [keyring](./00-keyring.md#adding-keys-to-the-keyring). Also note that the tokens in the Cosmos SDK have the `{amount}{denom}` format: `amount` is is a 18-digit-precision decimal number, and `denom` is the unique token identifier with its denomination key (e.g. `atom` or `uatom`). Here, we are granting `stake` tokens, as `stake` is the token identifier used for staking in [`simapp`](https://github.com/cosmos/cosmos-sdk/tree/main/simapp). For your own chain with its own staking denom, that token identifier should be used instead.
+Recall that `$MY_VALIDATOR_ADDRESS` is a variable that holds the address of the `my_validator` key in the [keyring](./00-keyring.md#adding-keys-to-the-keyring). Also note that the tokens in the Cosmos SDK have the `{amount}{denom}` format: `amount` is an 18-digit-precision decimal number, and `denom` is the unique token identifier with its denomination key (e.g. `atom` or `uatom`). Here, we are granting `stake` tokens, as `stake` is the token identifier used for staking in [`simapp`](https://github.com/cosmos/cosmos-sdk/tree/main/simapp). For your own chain with its own staking denom, that token identifier should be used instead.
 
-Now that your account has some tokens, you need to add a validator to your chain. Validators are special full-nodes that participate in the consensus process (implemented in the [underlying consensus engine](../intro/02-sdk-app-architecture.md#tendermint)) in order to add new blocks to the chain. Any account can declare its intention to become a validator operator, but only those with sufficient delegation get to enter the active set (for example, only the top 125 validator candidates with the most delegation get to be validators in the Cosmos Hub). For this guide, you will add your local node (created via the `init` command above) as a validator of your chain. Validators can be declared before a chain is first started via a special transaction included in the genesis file called a `gentx`:
+Now that your account has some tokens, you need to add a validator to your chain. Validators are special full-nodes that participate in the consensus process (implemented in the [underlying consensus engine](../intro/02-sdk-app-architecture.md#cometbft)) in order to add new blocks to the chain. Any account can declare its intention to become a validator operator, but only those with sufficient delegation get to enter the active set (for example, only the top 125 validator candidates with the most delegation get to be validators in the Cosmos Hub). For this guide, you will add your local node (created via the `init` command above) as a validator of your chain. Validators can be declared before a chain is first started via a special transaction included in the genesis file called a `gentx`:
 
 ```bash
 # Create a gentx.
@@ -98,7 +96,7 @@ A `gentx` does three things:
 
 1. Registers the `validator` account you created as a validator operator account (i.e. the account that controls the validator).
 2. Self-delegates the provided `amount` of staking tokens.
-3. Link the operator account with a Tendermint node pubkey that will be used for signing blocks. If no `--pubkey` flag is provided, it defaults to the local node pubkey created via the `simd init` command above.
+3. Link the operator account with a CometBFT node pubkey that will be used for signing blocks. If no `--pubkey` flag is provided, it defaults to the local node pubkey created via the `simd init` command above.
 
 For more information on `gentx`, use the following command:
 
@@ -110,7 +108,7 @@ simd genesis gentx --help
 
 The Cosmos SDK automatically generates two configuration files inside `~/.simapp/config`:
 
-* `config.toml`: used to configure the Tendermint, learn more on [Tendermint's documentation](https://docs.tendermint.com/master/nodes/configuration.html),
+* `config.toml`: used to configure the CometBFT, learn more on [CometBFT's documentation](https://docs.cometbft.com/v0.37/core/configuration),
 * `app.toml`: generated by the Cosmos SDK, and used to configure your app, such as state pruning strategies, telemetry, gRPC and REST servers configuration, state sync...
 
 Both files are heavily commented, please refer to them directly to tweak your node.
@@ -136,7 +134,14 @@ You should see blocks come in.
 
 The previous command allow you to run a single node. This is enough for the next section on interacting with this node, but you may wish to run multiple nodes at the same time, and see how consensus happens between them.
 
-The naive way would be to run the same commands again in separate terminal windows. This is possible, however in the Cosmos SDK, we leverage the power of [Docker Compose](https://docs.docker.com/compose/) to run a localnet. If you need inspiration on how to set up your own localnet with Docker Compose, you can have a look at the Cosmos SDK's [`docker-compose.yml`](https://github.com/cosmos/cosmos-sdk/blob/v0.46.0/docker-compose.yml).
+The naive way would be to run the same commands again in separate terminal windows. This is possible, however in the Cosmos SDK, we leverage the power of [Docker Compose](https://docs.docker.com/compose/) to run a localnet. If you need inspiration on how to set up your own localnet with Docker Compose, you can have a look at the Cosmos SDK's [`docker-compose.yml`](https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/docker-compose.yml).
+
+### Standalone App/CometBFT
+
+By default, the Cosmos SDK runs CometBFT in-process with the application
+If you want to run the application and CometBFT in separate processes,
+start the application with the `--with-comet=false` flag
+and set `rpc.laddr` in `config.toml` to the CometBFT node's RPC address.
 
 ## Logging
 
@@ -149,3 +154,44 @@ In config.toml:
 ```toml
 log_level: "state:info,p2p:info,consensus:info,x/staking:info,x/ibc:info,*error"
 ```
+
+## State Sync
+
+State sync is the act in which a node syncs the latest or close to the latest state of a blockchain. This is useful for users who don't want to sync all the blocks in history. Read more in [CometBFT documentation](https://docs.cometbft.com/v0.37/core/state-sync).
+
+State sync works thanks to snapshots. Read how the SDK handles snapshots [here](https://github.com/cosmos/cosmos-sdk/blob/825245d/store/snapshots/README.md).
+
+### Local State Sync
+
+Local state sync work similar to normal state sync except that it works off a local snapshot of state instead of one provided via the p2p network. The steps to start local state sync are similar to normal state sync with a few different designs. 
+
+1. As mentioned in https://docs.cometbft.com/v0.37/core/state-sync, one must set a height and hash in the config.toml along with a few rpc servers (the afromentioned link has instructions on how to do this). 
+2. Run `<appd snapshot restore <height> <format>` to restore a local snapshot (note: first load it from a file with the *load* command). 
+3. Bootsrapping Comet state in order to start the node after the snapshot has been ingested. This can be done with the bootstrap command `<app> comet bootstrap-state`
+
+### Snapshots Commands
+
+The Cosmos SDK provides commands for managing snapshots.
+These commands can be added in an app with the following snippet in `cmd/<app>/root.go`:
+
+```go
+import (
+  "github.com/cosmos/cosmos-sdk/client/snapshot"
+)
+
+func initRootCmd(/* ... */) {
+  // ...
+  rootCmd.AddCommand(
+    snapshot.Cmd(appCreator),
+  )
+}
+```
+
+Then following commands are available at `<appd> snapshots [command]`:
+
+* **list**: list local snapshots
+* **load**: Load a snapshot archive file into snapshot store
+* **restore**: Restore app state from local snapshot
+* **export**:  Export app state to snapshot store
+* **dump**: Dump the snapshot as portable archive format
+* **delete**: Delete a local snapshot

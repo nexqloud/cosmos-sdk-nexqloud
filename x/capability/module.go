@@ -10,7 +10,7 @@ import (
 
 	"cosmossdk.io/core/appmodule"
 
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/cometbft/cometbft/abci/types"
 
 	modulev1 "cosmossdk.io/api/cosmos/capability/module/v1"
 	"cosmossdk.io/depinject"
@@ -162,11 +162,6 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	simulation.RandomizedGenState(simState)
 }
 
-// ProposalContents performs a no-op
-func (am AppModule) ProposalContents(simState module.SimulationState) []simtypes.WeightedProposalContent {
-	return nil
-}
-
 // RegisterStoreDecoder registers a decoder for capability module's types
 func (am AppModule) RegisterStoreDecoder(sdr sdk.StoreDecoderRegistry) {
 	sdr[types.StoreKey] = simulation.NewDecodeStore(am.cdc)
@@ -187,7 +182,6 @@ func init() {
 	)
 }
 
-//nolint:revive
 type CapabilityInputs struct {
 	depinject.In
 
@@ -198,7 +192,6 @@ type CapabilityInputs struct {
 	Cdc         codec.Codec
 }
 
-//nolint:revive
 type CapabilityOutputs struct {
 	depinject.Out
 
